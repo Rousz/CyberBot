@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://synoramusicgroup.com/sitemap.xml
