@@ -11,7 +11,7 @@
      ------------------------------------------------------------ */
 
   // BURAYA ZARA'NIN DOĞUM TARİHİNİ YAZ (biçim: "YYYY-AA-GG")
-  var DOGUM_TARIHI = "2005-08-19";
+  var DOGUM_TARIHI = "2005-08-14";
 
   // BURAYA DOĞUM SAATİNİ YAZABİLİRSİN (bilinmiyorsa "00:00" kalabilir)
   var DOGUM_SAATI = "00:00";
@@ -26,6 +26,11 @@
   /* ------------------------------------------------------------
      Yardımcılar
      ------------------------------------------------------------ */
+
+  var AYLAR_KISA = [
+    "oca", "şub", "mar", "nis", "may", "haz",
+    "tem", "ağu", "eyl", "eki", "kas", "ara"
+  ];
 
   var AYLAR = [
     "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
@@ -108,7 +113,9 @@
   var dakikaEl = sec("#dakikaSayisi");
   var saniyeEl = sec("#saniyeSayisi");
   var dipnotEl = sec("#sayacDipnot");
-  var kapakTarihEl = sec("#kapakTarih");
+  var rozetGunEl = sec("#rozetGun");
+  var rozetAyEl = sec("#rozetAy");
+  var kapakUstYaziEl = sec("#kapakUstYazi");
 
   function yasHesapla(baslangic, simdi) {
     var yas = simdi.getFullYear() - baslangic.getFullYear();
@@ -138,9 +145,13 @@
   }
 
   if (dogumGecerli) {
-    // Kapaktaki küçük tarih yazısı da doğum tarihinden geliyor
-    if (kapakTarihEl) {
-      kapakTarihEl.textContent = dogum.getDate() + " " + AYLAR[dogum.getMonth()];
+    // Kapaktaki rozet ve üst yazı da doğum tarihinden geliyor
+    if (rozetGunEl) { rozetGunEl.textContent = dogum.getDate(); }
+    if (rozetAyEl) { rozetAyEl.textContent = AYLAR_KISA[dogum.getMonth()]; }
+    if (kapakUstYaziEl) {
+      kapakUstYaziEl.textContent =
+        "bir doğum günü hikâyesi — " + dogum.getDate() + " " +
+        AYLAR[dogum.getMonth()].toLocaleLowerCase("tr-TR");
     }
 
     if (dipnotEl) {
@@ -258,7 +269,25 @@
   }
 
   /* ------------------------------------------------------------
-     7) ARKA PLAN MÜZİĞİ
+     7) MEKTUP AVATARI
+     Fotoğraf (assets/img/tom-hardy.jpg) yoksa yerine baş harf gelir.
+     ------------------------------------------------------------ */
+
+  var avatarFoto = sec("#mektupAvatar");
+  var avatarHarf = sec("#avatarHarf");
+
+  function avatarYedegeGec() {
+    if (avatarFoto) { avatarFoto.style.display = "none"; }
+    if (avatarHarf) { avatarHarf.hidden = false; }
+  }
+
+  if (avatarFoto) {
+    avatarFoto.addEventListener("error", avatarYedegeGec);
+    if (avatarFoto.complete && avatarFoto.naturalWidth === 0) { avatarYedegeGec(); }
+  }
+
+  /* ------------------------------------------------------------
+     8) ARKA PLAN MÜZİĞİ
      İki kaynak destekli (yukarıdaki MUZIK_KAYNAGI sabiti seçer):
        "youtube" → YouTube'un resmî gömülü oynatıcısı (görünmez)
        "dosya"   → assets/audio/song.mp3
@@ -272,7 +301,7 @@
   var youtubeModu = MUZIK_KAYNAGI === "youtube";
 
   function muzikDurumu(caliyor) {
-    if (muzikIkon) { muzikIkon.textContent = caliyor ? "❚❚" : "▶"; }
+    if (muzikIkon) { muzikIkon.textContent = caliyor ? "🔊" : "🔇"; }
     if (muzikDugme) {
       muzikDugme.classList.toggle("caliyor", caliyor);
       muzikDugme.setAttribute("aria-pressed", caliyor ? "true" : "false");

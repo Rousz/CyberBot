@@ -6,11 +6,17 @@ Vanilla HTML5 + CSS3 + vanilla JavaScript. Build aracı, backend, veritabanı yo
 ## Dosya yapısı
 
 ```
-index.html              → tüm bölümler ve metinler
-css/style.css           → tema, renkler, animasyonlar, responsive kurallar
-js/script.js            → sayaç, mumlar, konfeti, zarf, müzik, scroll animasyonları
-assets/audio/song.mp3   → arka plan müziği (dosyayı buraya kendin koyacaksın)
+index.html                 → 9 bölümün tamamı ve tüm metinler
+css/style.css              → tema, renkler, animasyonlar, responsive kurallar
+js/script.js               → sayaç, mumlar, konfeti, zarf, müzik, scroll animasyonları
+assets/img/tom-hardy.jpg   → Hollywood bölümündeki avatar (dosyayı sen koyacaksın)
+assets/audio/song.mp3      → yerel müzik seçeneği (sadece "dosya" modunda gerekir)
 ```
+
+Bölümler: kapak → kayan şerit → 01 Onu Özel Yapan Küçük Şeyler → 02 Neden Şanslıyız →
+03 Dünyanın En Güzel Gülüşü → 04 Çocukluk Köşesi → 05 Zamanın Damgası →
+06 Zaman Çizelgesi → 07 Hollywood'dan Gizemli Bir Tebrik → 08 Mumları Üflemek Kaldı →
+09 Mühürlü Köşe
 
 ## Önizleme
 
@@ -21,7 +27,9 @@ Proje klasöründe `python3 -m http.server` çalıştırıp tarayıcıda
 
 | Ne | Nerede |
 | --- | --- |
-| Doğum tarihi (sayaç) | `js/script.js` en üstteki `DOGUM_TARIHI` sabiti — biçim `"YYYY-AA-GG"` |
+| Doğum tarihi (sayaç + kapak rozeti) | `js/script.js` en üstteki `DOGUM_TARIHI` sabiti — biçim `"YYYY-AA-GG"` |
+| Hollywood avatarı | Fotoğrafı `assets/img/tom-hardy.jpg` olarak koy (yoksa yerinde "T" harfi görünür) |
+| Kayan şeritteki sözler | `index.html` içinde `<!-- BURAYA ŞERİTTE DÖNECEK SÖZLERİ YAZ -->` — **iki kopyayı da** güncelle (döngü için ikisi aynı olmalı) |
 | Doğum saati (isteğe bağlı) | `js/script.js` içindeki `DOGUM_SAATI` sabiti |
 | Anı metinleri | `index.html` içinde `<!-- BURAYA ANI METNİNİ YAZ -->` yorumlarının olduğu 5 kart |
 | Gizli/mühürlü not | `index.html` içinde `<!-- BURAYA EN KİŞİSEL, EN İÇTEN NOTU YAZ -->` |
