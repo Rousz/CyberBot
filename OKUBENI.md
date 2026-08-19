@@ -52,19 +52,20 @@ yükleniyor; yerel dosya indirmeye gerek yok.
 
 ## Müzik nasıl çalışıyor?
 
-Varsayılan olarak şarkı **YouTube'un resmî gömülü oynatıcısından** çalıyor; sayfada
-görünmez bir oynatıcı var, köşedeki buton onu başlatıp durduruyor. Hiçbir dosya
-indirilmiyor, telif açısından sorun yok.
+Şu anki ayar: şarkı **`assets/audio/song.mp3` dosyasından** çalıyor. Köşedeki buton
+başlatıp durduruyor, parça bitince başa dönüyor (döngü), ses seviyesi %55.
+
+Alternatif olarak YouTube'un resmî gömülü oynatıcısı da hazır duruyor; `MUZIK_KAYNAGI`
+değerini `"youtube"` yapman yeterli.
 
 Değiştirmek için `js/script.js` en üstü:
 
 ```js
-var MUZIK_KAYNAGI  = "youtube";        // "youtube" veya "dosya"
+var MUZIK_KAYNAGI  = "dosya";          // "dosya" veya "youtube"
 var YOUTUBE_VIDEO_ID = "q2U9uz3k0wY";  // youtube.com/watch?v=BURASI
 ```
 
-Kendi mp3'ünü kullanmak istersen `MUZIK_KAYNAGI` değerini `"dosya"` yap ve dosyayı
-`assets/audio/song.mp3` olarak koy.
+Şarkıyı değiştirmek için yeni mp3'ü `assets/audio/song.mp3` olarak kaydetmen yeterli.
 
 Not: YouTube tarafında videonun gömülmesi kapatılmışsa (yükleyenin tercihi) o video
 sitede çalmaz; böyle bir durumda buton sessizce hiçbir şey yapar, başka bir video

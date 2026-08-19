@@ -11,14 +11,14 @@
      ------------------------------------------------------------ */
 
   // BURAYA ZARA'NIN DOĞUM TARİHİNİ YAZ (biçim: "YYYY-AA-GG")
-  var DOGUM_TARIHI = "2005-08-14";
+  var DOGUM_TARIHI = "2007-08-14";
 
   // BURAYA DOĞUM SAATİNİ YAZABİLİRSİN (bilinmiyorsa "00:00" kalabilir)
   var DOGUM_SAATI = "00:00";
 
-  // MÜZİK KAYNAĞI: "youtube"  → şarkı YouTube'dan çalar (dosya indirmeye gerek yok)
-  //                "dosya"    → assets/audio/song.mp3 dosyasını çalar
-  var MUZIK_KAYNAGI = "youtube";
+  // MÜZİK KAYNAĞI: "dosya"    → assets/audio/song.mp3 dosyasını çalar (şu anki ayar)
+  //                "youtube"  → şarkı YouTube'dan çalar
+  var MUZIK_KAYNAGI = "dosya";
 
   // YouTube video kimliği (linkteki v= değeri). Şu anki: q2U9uz3k0wY
   var YOUTUBE_VIDEO_ID = "q2U9uz3k0wY";
@@ -108,7 +108,6 @@
   var dogumGecerli = !isNaN(dogum.getTime());
 
   var gunEl = sec("#gunSayisi");
-  var yasEl = sec("#yasSayisi");
   var saatEl = sec("#saatSayisi");
   var dakikaEl = sec("#dakikaSayisi");
   var saniyeEl = sec("#saniyeSayisi");
@@ -116,15 +115,6 @@
   var rozetGunEl = sec("#rozetGun");
   var rozetAyEl = sec("#rozetAy");
   var kapakUstYaziEl = sec("#kapakUstYazi");
-
-  function yasHesapla(baslangic, simdi) {
-    var yas = simdi.getFullYear() - baslangic.getFullYear();
-    var ayFarki = simdi.getMonth() - baslangic.getMonth();
-    if (ayFarki < 0 || (ayFarki === 0 && simdi.getDate() < baslangic.getDate())) {
-      yas -= 1;
-    }
-    return yas < 0 ? 0 : yas;
-  }
 
   function sayaciGuncelle() {
     if (!dogumGecerli) { return; }
@@ -138,7 +128,6 @@
     var kalan = saniye % 86400;
 
     sayiYaz(gunEl, gun.toLocaleString("tr-TR"));
-    sayiYaz(yasEl, yasHesapla(dogum, simdi));
     sayiYaz(saatEl, Math.floor(kalan / 3600));
     sayiYaz(dakikaEl, Math.floor((kalan % 3600) / 60));
     sayiYaz(saniyeEl, kalan % 60);
