@@ -1,43 +1,485 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Synora Music Group — Music, Engineered With Purpose.</title>
-    <meta
-      name="description"
-      content="Synora Music Group is a record label built on a full in-house production team, AI-augmented workflows, and a disciplined, professional approach to every release."
-    />
-    <meta name="theme-color" content="#0A0A0A" />
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <link rel="icon" href="/favicon.ico" sizes="any" />
-    <link rel="icon" type="image/png" href="/favicon-64.png" sizes="64x64" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <!-- BURAYA SAYFA BAŞLIĞINI DEĞİŞTİREBİLİRSİN -->
+  <title>Zara — Dünyanın En Güzel Günlerinden Biri</title>
+  <meta name="description" content="Zara'yı hiç tanımayanlar için yazılmış küçük bir tanıtım: kim olduğu, bugünün neden takvimdeki sıradan bir kareden fazlası olduğu ve onun var olmasının neden herkes için iyi bir haber olduğu." />
+  <meta name="theme-color" content="#f7f1e6" />
 
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Synora Music Group" />
-    <meta property="og:title" content="Synora Music Group — Music, Engineered With Purpose." />
-    <meta
-      property="og:description"
-      content="A record label built on a full in-house production team, AI-augmented workflows, and a disciplined, professional approach to every release."
-    />
-    <meta property="og:image" content="/brand/synora-mark-512.png" />
-    <meta name="twitter:card" content="summary" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Zara — Dünyanın En Güzel Günlerinden Biri" />
+  <meta property="og:description" content="Onu hiç tanımayanlar için yazılmış, sıcak bir günlük sayfası." />
+  <meta property="og:image" content="https://i.imgur.com/fe6xnlu.jpeg" />
 
-    <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600;700&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
 
-    <script type="application/ld+json">
-      {
-        "@context": "https://schema.org",
-        "@type": "Organization",
-        "name": "Synora Music Group",
-        "description": "A record label built on a full in-house production team, AI-augmented workflows, and a disciplined, professional approach to every release.",
-        "logo": "/brand/synora-logo.png"
-      }
-    </script>
-  </head>
-  <body class="bg-paper text-ink antialiased">
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- ============================================================
+       1. KAPAK / AÇILIŞ
+       ============================================================ -->
+  <header class="kapak" id="kapak">
+    <div class="kapak__medya" id="kapakMedya">
+      <img
+        class="kapak__foto"
+        src="https://i.imgur.com/fe6xnlu.jpeg"
+        alt="Zara'nın portresi — sayfanın kapak fotoğrafı"
+        fetchpriority="high"
+        decoding="async"
+      />
+    </div>
+    <div class="kapak__perde" aria-hidden="true"></div>
+
+    <div class="kapak__icerik">
+      <!-- Bu küçük tarih yazısı, script.js içindeki DOGUM_TARIHI sabitinden otomatik gelir -->
+      <p class="kapak__tarih" id="kapakTarih">bugün</p>
+
+      <!-- BURAYA ANA BAŞLIĞI YAZ -->
+      <h1 class="kapak__baslik">Zara diye biri var.</h1>
+
+      <!-- BURAYA GİRİŞ PARAGRAFINI YAZ -->
+      <p class="kapak__giris">
+        Bu sayfa, onu hiç tanımayanlar için yazıldı. Kim olduğunu, bugünün neden
+        takvimde sıradan bir kare olmadığını ve bir insanın var olmasının nasıl
+        bu kadar iyi bir haber olabileceğini anlatmak için. Aşağısı, onunla ilgili
+        küçük ve gerçek şeylerle dolu.
+      </p>
+
+      <p class="kapak__ipucu" aria-hidden="true">sayfa aşağıda devam ediyor</p>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ============================================================
+         2. ONU ÖZEL YAPAN KÜÇÜK ŞEYLER
+         ============================================================ -->
+    <section class="bolum ozel" id="ozel">
+      <div class="sarmal">
+        <div class="kagit reveal">
+          <h2 class="baslik-elyazisi">Onu özel yapan küçük şeyler</h2>
+          <p class="bolum__giris">
+            Büyük cümlelerle anlatılabilecek biri değil. Onu tanımak, daha çok
+            küçük detayların yavaşça birikmesi gibi bir şey.
+          </p>
+
+          <!-- BURAYA MADDELERİ EKLEYEBİLİR VEYA DEĞİŞTİREBİLİRSİN -->
+          <ul class="gunluk-liste">
+            <li class="gunluk-liste__oge">
+              Bir yere girdiğinde ortamın sesi değişir. Kimse bunu yüksek sesle
+              söylemez ama herkes biraz daha rahatlar.
+            </li>
+            <li class="gunluk-liste__oge">
+              Dinlerken gerçekten dinler. Cevabını hazırlamak için değil,
+              karşısındakini anlamak için bekler.
+            </li>
+            <li class="gunluk-liste__oge">
+              Küçük şeyleri hatırlar: sevilen bir şarkıyı, geçen ay söylenmiş bir
+              cümleyi, kimsenin önemsemediği bir tarihi.
+            </li>
+            <li class="gunluk-liste__oge">
+              İyiliği gösterişsizdir. Yaptığı şeyleri anlatmaz, sadece yapar ve
+              sonra konuyu değiştirir.
+            </li>
+            <li class="gunluk-liste__oge">
+              Güldüğünde önce gözleri güler; gerisi hemen arkasından gelir.
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         3. NEDEN ŞANSLIYIZ?
+         ============================================================ -->
+    <section class="bolum sansliyiz" id="sansliyiz">
+      <div class="sarmal sarmal--dar">
+        <div class="reveal">
+          <h2 class="baslik-elyazisi baslik-elyazisi--orta">Neden şanslıyız?</h2>
+
+          <!-- BURAYA "NEDEN ŞANSLIYIZ" METNİNİ YAZ -->
+          <p class="anlati">
+            Dünyada milyarlarca insan var ve çoğu birbirinin hayatına hiç
+            değmiyor. Bu yüzden bazı karşılaşmalar şans sayılıyor. Onunla
+            karşılaşmak da tam olarak öyle bir şans: planlanmamış, hak
+            edilmemiş, öylece olmuş.
+          </p>
+          <p class="anlati">
+            Onu tanıyan herkes, farkında olmadan kendisinin biraz daha iyi bir
+            versiyonuna dönüşüyor. Çünkü insanın kendisini güvende hissettiği yerde
+            yumuşaması gibi bir şey bu; onun yanında kimse rol yapmak zorunda
+            kalmıyor. Böyle bir alan açabilen insan sayısı sanıldığından çok daha
+            az.
+          </p>
+          <p class="anlati">
+            Ve işin en güzel tarafı: bunun için özel bir şey yapmasına gerek yok.
+            Sadece var olması yetiyor. Bugün kutlanan şey de tam olarak bu —
+            yıllar önce, hiç kimsenin haberi yokken, dünya sessizce çok iyi bir
+            haber almış.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         4. DÜNYANIN EN GÜZEL GÜLÜŞÜ
+         ============================================================ -->
+    <section class="bolum gulus" id="gulus">
+      <div class="sarmal">
+        <h2 class="baslik-elyazisi baslik-elyazisi--orta reveal">Dünyanın en güzel gülüşü</h2>
+
+        <div class="gulus__kompozisyon">
+          <figure class="polaroid polaroid--buyuk reveal">
+            <span class="bant bant--sol" aria-hidden="true"></span>
+            <img
+              src="https://i.imgur.com/RbuP8TG.png"
+              alt="Zara gülümserken çekilmiş fotoğrafı"
+              loading="lazy"
+              decoding="async"
+            />
+            <!-- BURAYA BÜYÜK FOTOĞRAFIN ALT YAZISINI YAZ -->
+            <figcaption>en sevilen kare</figcaption>
+          </figure>
+
+          <figure class="polaroid polaroid--kucuk reveal">
+            <span class="bant bant--sag" aria-hidden="true"></span>
+            <img
+              src="https://i.imgur.com/GcnMq8L.png"
+              alt="Zara'nın bir başka fotoğrafı, gülümseme karesinin yanında"
+              loading="lazy"
+              decoding="async"
+            />
+            <!-- BURAYA KÜÇÜK FOTOĞRAFIN ALT YAZISINI YAZ -->
+            <figcaption>aynı gün, başka bir an</figcaption>
+          </figure>
+        </div>
+
+        <!-- BURAYA GÜLÜMSEME BÖLÜMÜNÜN EL YAZISI ALT YAZISINI YAZ -->
+        <p class="elyazisi-not reveal" id="gulusNotu">
+          Bir gülüşün bu kadar çok şeyi düzeltebilmesi, hâlâ açıklanamamış
+          konulardan biri.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         5. ÇOCUKLUK KÖŞESİ
+         ============================================================ -->
+    <section class="bolum cocukluk" id="cocukluk">
+      <div class="sarmal">
+        <h2 class="baslik-elyazisi baslik-elyazisi--orta reveal">Çocukluk köşesi</h2>
+
+        <div class="cocukluk__kompozisyon">
+          <figure class="eski-foto reveal">
+            <img
+              src="https://i.imgur.com/m8hES2K.jpeg"
+              alt="Zara'nın çocukluk fotoğrafı, eski bir fotoğraf kartı gibi çerçevelenmiş"
+              loading="lazy"
+              decoding="async"
+            />
+          </figure>
+
+          <div class="cocukluk__not reveal">
+            <!-- BURAYA ÇOCUKLUK NOTUNU YAZ -->
+            <p class="elyazisi-not elyazisi-not--sol">
+              Bu fotoğraftaki çocuk, ileride kimsenin fark etmediği şeyleri fark
+              eden birine dönüşecekti. O bakış hâlâ aynı; sadece biraz daha çok
+              şey biliyor artık.
+            </p>
+            <p class="cocukluk__imza">— günlükten bir sayfa</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         6. YAŞ / GÜN SAYACI
+         ============================================================ -->
+    <section class="bolum sayac" id="sayac">
+      <div class="sarmal sarmal--dar">
+        <div class="kagit kagit--damgali reveal">
+          <img
+            class="damga"
+            src="https://i.imgur.com/8miiV3l.png"
+            alt="Zamanın damgası — sayfaya basılmış küçük bir mühür görseli"
+            loading="lazy"
+            decoding="async"
+          />
+
+          <h2 class="baslik-elyazisi baslik-elyazisi--orta">Zamanın damgası</h2>
+          <p class="bolum__giris bolum__giris--orta">
+            Bu sayı her saniye büyüyor ve her biri dünyanın onunla birlikte
+            geçirdiği bir gün.
+          </p>
+
+          <p class="sayac__buyuk"><span id="gunSayisi">—</span> <span class="sayac__birim">gün</span></p>
+
+          <ul class="sayac__kutular">
+            <li><strong id="yasSayisi">—</strong><span>yaşında</span></li>
+            <li><strong id="saatSayisi">—</strong><span>saat</span></li>
+            <li><strong id="dakikaSayisi">—</strong><span>dakika</span></li>
+            <li><strong id="saniyeSayisi">—</strong><span>saniye</span></li>
+          </ul>
+
+          <p class="sayac__dipnot" id="sayacDipnot"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         7. ZAMAN ÇİZELGESİ (ANILAR)
+         ============================================================ -->
+    <section class="bolum anilar" id="anilar">
+      <div class="sarmal">
+        <h2 class="baslik-elyazisi baslik-elyazisi--orta reveal">Zaman çizelgesi</h2>
+        <p class="bolum__giris bolum__giris--orta reveal">
+          Bir insanı anlatmanın en dürüst yolu, belki de anılarını sırayla
+          dizmek. Buradaki kutular sonradan doldurulmak üzere bekliyor.
+        </p>
+
+        <figure class="anilar__gorsel reveal">
+          <img
+            src="https://i.imgur.com/DDHU0cz.jpeg"
+            alt="Zaman çizelgesi bölümü için seçilmiş bir fotoğraf"
+            loading="lazy"
+            decoding="async"
+          />
+          <!-- BURAYA ZAMAN ÇİZELGESİ GÖRSELİNİN ALT YAZISINI YAZ -->
+          <figcaption>zamanın bir yerinden</figcaption>
+        </figure>
+
+        <ol class="cizelge">
+          <!-- ANI 1 -->
+          <li class="cizelge__oge reveal">
+            <div class="cizelge__kart">
+              <!-- BURAYA YILI YAZ -->
+              <span class="cizelge__yil">yıl</span>
+              <!-- BURAYA ANININ BAŞLIĞINI YAZ -->
+              <h3 class="cizelge__baslik">İlk anı</h3>
+              <!-- BURAYA ANI METNİNİ YAZ -->
+              <p class="cizelge__metin">Bu anının metni buraya gelecek.</p>
+            </div>
+          </li>
+
+          <!-- ANI 2 -->
+          <li class="cizelge__oge reveal">
+            <div class="cizelge__kart">
+              <!-- BURAYA YILI YAZ -->
+              <span class="cizelge__yil">yıl</span>
+              <!-- BURAYA ANININ BAŞLIĞINI YAZ -->
+              <h3 class="cizelge__baslik">İkinci anı</h3>
+              <!-- BURAYA ANI METNİNİ YAZ -->
+              <p class="cizelge__metin">Bu anının metni buraya gelecek.</p>
+            </div>
+          </li>
+
+          <!-- ANI 3 -->
+          <li class="cizelge__oge reveal">
+            <div class="cizelge__kart">
+              <!-- BURAYA YILI YAZ -->
+              <span class="cizelge__yil">yıl</span>
+              <!-- BURAYA ANININ BAŞLIĞINI YAZ -->
+              <h3 class="cizelge__baslik">Üçüncü anı</h3>
+              <!-- BURAYA ANI METNİNİ YAZ -->
+              <p class="cizelge__metin">Bu anının metni buraya gelecek.</p>
+            </div>
+          </li>
+
+          <!-- ANI 4 -->
+          <li class="cizelge__oge reveal">
+            <div class="cizelge__kart">
+              <!-- BURAYA YILI YAZ -->
+              <span class="cizelge__yil">yıl</span>
+              <!-- BURAYA ANININ BAŞLIĞINI YAZ -->
+              <h3 class="cizelge__baslik">Dördüncü anı</h3>
+              <!-- BURAYA ANI METNİNİ YAZ -->
+              <p class="cizelge__metin">Bu anının metni buraya gelecek.</p>
+            </div>
+          </li>
+
+          <!-- ANI 5 -->
+          <li class="cizelge__oge reveal">
+            <div class="cizelge__kart">
+              <!-- BURAYA YILI YAZ -->
+              <span class="cizelge__yil">yıl</span>
+              <!-- BURAYA ANININ BAŞLIĞINI YAZ -->
+              <h3 class="cizelge__baslik">Beşinci anı</h3>
+              <!-- BURAYA ANI METNİNİ YAZ -->
+              <p class="cizelge__metin">Bu anının metni buraya gelecek.</p>
+            </div>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         8. SÜRPRİZ — HOLLYWOOD'DAN GİZEMLİ BİR TEBRİK
+         (Tamamen kurgusal bir karakter; gerçek bir ünlü değil.)
+         ============================================================ -->
+    <section class="bolum hollywood" id="hollywood">
+      <div class="sarmal sarmal--dar">
+        <article class="mektup reveal">
+          <div class="mektup__ust">
+            <div class="silue" aria-hidden="true">
+              <span class="silue__soru">?</span>
+            </div>
+            <div>
+              <p class="mektup__etiket">Özel Teslimat</p>
+              <h2 class="mektup__baslik">Hollywood'dan gizemli bir tebrik</h2>
+            </div>
+          </div>
+
+          <!-- BURAYA ESPRİLİ TEBRİK METNİNİ DEĞİŞTİREBİLİRSİN -->
+          <div class="mektup__govde">
+            <p>
+              Kimliğini açıklamak istemeyen, adı üç ödül töreninde yanlış
+              telaffuz edilmiş, dünyaca ünlü bir yıldızdan bu sayfaya bir not
+              ulaştı. Aslen bir çekim arasında yazılmış; kâğıdın kenarında hâlâ
+              kahve lekesi var.
+            </p>
+            <blockquote>
+              <p>
+                “Kariyerim boyunca üç kıtada çalıştım, iki kez uzaydan döner gibi
+                yaptım ve bir filmde nehri tek başıma yüzerek geçtim. Ama Zara'nın
+                doğduğu günün yıl dönümü kadar iyi kurgulanmış bir sahne
+                görmedim. Ajansım bu mesajı göndermememi söyledi. Ajansımı
+                kovdum.”
+              </p>
+              <p>
+                “Kendisiyle hiç tanışmadım. Yine de ekibime söyledim: gerekirse
+                çekimi durdururuz, çünkü bugün takvimdeki en iyi gün. Kırmızı
+                halıyı da bu yüzden bu tarafa çevirtiyorum.”
+              </p>
+            </blockquote>
+            <p class="mektup__imza">— adı verilmeyen, oldukça ünlü biri</p>
+          </div>
+
+          <p class="mektup__dipnot">
+            (Bu mektup tamamen kurgusaldır. Karakter hayalidir, gerçek hiçbir
+            kişiyle ilgisi yoktur — ama duygusu gerçektir.)
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         9. MUM ÜFLEME ETKİLEŞİMİ
+         ============================================================ -->
+    <section class="bolum pasta-bolum" id="pastaBolum">
+      <div class="sarmal">
+        <h2 class="baslik-elyazisi baslik-elyazisi--orta reveal">Mumları üflemek kaldı</h2>
+        <p class="bolum__giris bolum__giris--orta reveal">
+          Beş mum yanıyor. Her birine dokunulduğunda biri sönüyor; sonuncusu
+          söndüğünde de olması gereken şey oluyor.
+        </p>
+
+        <div class="pasta-alan reveal">
+          <img
+            class="pasta-alan__gorsel"
+            src="https://i.imgur.com/8miiV3l.png"
+            alt="Mum üfleme bölümü için kullanılan dekoratif damga görseli"
+            loading="lazy"
+            decoding="async"
+          />
+
+          <div class="pasta" id="pasta">
+            <div class="mumlar" id="mumlar">
+              <button type="button" class="mum" aria-pressed="false" aria-label="Birinci mumu üfle"><span class="alev" aria-hidden="true"></span></button>
+              <button type="button" class="mum" aria-pressed="false" aria-label="İkinci mumu üfle"><span class="alev" aria-hidden="true"></span></button>
+              <button type="button" class="mum" aria-pressed="false" aria-label="Üçüncü mumu üfle"><span class="alev" aria-hidden="true"></span></button>
+              <button type="button" class="mum" aria-pressed="false" aria-label="Dördüncü mumu üfle"><span class="alev" aria-hidden="true"></span></button>
+              <button type="button" class="mum" aria-pressed="false" aria-label="Beşinci mumu üfle"><span class="alev" aria-hidden="true"></span></button>
+            </div>
+
+            <svg class="pasta__svg" viewBox="0 84 320 126" role="img" aria-label="Basit bir doğum günü pastası çizimi">
+              <ellipse cx="160" cy="190" rx="135" ry="14" fill="rgba(107, 84, 63, 0.14)" />
+              <rect x="40" y="96" width="240" height="88" rx="14" fill="#e6c9a8" />
+              <path d="M40 110 Q52 128 74 116 Q96 104 118 118 Q140 132 162 118 Q184 104 206 118 Q228 132 250 118 Q268 107 280 118 L280 96 L40 96 Z" fill="#f3ddc7" />
+              <path d="M40 108 q14 22 34 8 q20 -14 40 4 q20 18 40 2 q20 -16 40 2 q20 18 40 0 q16 -14 26 -2 l0 16 q-14 -12 -28 2 q-18 18 -38 0 q-20 -18 -40 0 q-20 18 -40 -2 q-20 -20 -40 -4 q-20 16 -34 -6 z" fill="#e3b7ae" />
+              <rect x="30" y="176" width="260" height="16" rx="8" fill="#d9c3a5" />
+              <circle cx="86" cy="150" r="5" fill="#a8b89a" />
+              <circle cx="160" cy="162" r="5" fill="#c9a882" />
+              <circle cx="232" cy="148" r="5" fill="#a8b89a" />
+              <circle cx="120" cy="168" r="4" fill="#e3b7ae" />
+              <circle cx="200" cy="140" r="4" fill="#e3b7ae" />
+            </svg>
+          </div>
+
+          <p class="pasta__mesaj" id="pastaMesaj" role="status" aria-live="polite"></p>
+
+          <button type="button" class="dugme dugme--sade" id="mumlariYak" hidden>Mumları yeniden yak</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         11. GİZLİ / ÖZEL KÖŞE
+         ============================================================ -->
+    <section class="bolum gizli" id="gizli">
+      <div class="sarmal sarmal--dar">
+        <div class="reveal">
+          <h2 class="baslik-elyazisi baslik-elyazisi--orta">Mühürlü köşe</h2>
+          <p class="bolum__giris bolum__giris--orta">
+            Sayfanın en sonunda, kapalı duran küçük bir zarf var. Açmak isteyen
+            açar.
+          </p>
+
+          <div class="zarf" id="zarf">
+            <button type="button" class="zarf__kapak" id="zarfDugme" aria-expanded="false" aria-controls="zarfIcerik">
+              <span class="zarf__muhur" aria-hidden="true">Z</span>
+              <span class="zarf__yazi">Zarfı aç</span>
+            </button>
+
+            <div class="zarf__icerik" id="zarfIcerik">
+              <div class="zarf__kagit">
+                <!-- BURAYA EN KİŞİSEL, EN İÇTEN NOTU YAZ (üçüncü şahıs anlatımıyla) -->
+                <p class="elyazisi-not elyazisi-not--sol">
+                  Bu satırlar, ona dair en sessiz kısım. Anlatılması zor olan şey
+                  şu: o bu dünyada olduğu için hayat, onun olmadığı hâline göre
+                  gözle görülür biçimde daha iyi. Bunu söylemek için özel bir gün
+                  gerekmiyor aslında; ama madem bugün var, burada dursun.
+                </p>
+                <p class="zarf__imza">— bu sayfayı yazan</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="dipnot">
+    <p class="dipnot__metin">
+      Bu sayfa, iyi bir insanın var olduğunu hatırlatmak için yapıldı.
+    </p>
+    <p class="dipnot__kalp" aria-hidden="true">✦</p>
+  </footer>
+
+  <!-- ============================================================
+       10. ARKA PLAN MÜZİĞİ (sabit köşe butonu)
+       ============================================================ -->
+  <div class="muzik" id="muzikKutu">
+    <button type="button" class="muzik__dugme" id="muzikDugme" aria-pressed="false" aria-label="Arka plan müziğini çal">
+      <span class="muzik__ikon" id="muzikIkon" aria-hidden="true">▶</span>
+    </button>
+    <!-- BURAYA MÜZİK İPUCU YAZISINI DEĞİŞTİREBİLİRSİN -->
+    <span class="muzik__ipucu" id="muzikIpucu">🔊 sesi açmayı unutma</span>
+  </div>
+
+  <!-- Müzik dosyası: assets/audio/song.mp3 — dosya yoksa buton sessizce hiçbir şey yapmaz -->
+  <audio id="arkaMuzik" src="assets/audio/song.mp3" loop preload="none"></audio>
+
+  <!-- Konfeti parçacıkları buraya eklenir -->
+  <div class="konfeti-alan" id="konfetiAlan" aria-hidden="true"></div>
+
+  <script src="js/script.js"></script>
+</body>
 </html>
