@@ -272,7 +272,10 @@
 
   if (avatarFoto) {
     avatarFoto.addEventListener("error", avatarYedegeGec);
-    if (avatarFoto.complete && avatarFoto.naturalWidth === 0) { avatarYedegeGec(); }
+    // Yükleme betikten önce bittiyse (önbellek) durumu burada yakala
+    if (avatarFoto.complete && avatarFoto.currentSrc && avatarFoto.naturalWidth === 0) {
+      avatarYedegeGec();
+    }
   }
 
   /* ------------------------------------------------------------
