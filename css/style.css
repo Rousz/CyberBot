@@ -905,7 +905,27 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
   padding: 1.4rem 1.3rem;
   box-shadow: var(--golge-yumusak);
 }
-.zarf__kagit .elyazisi { margin-top: 0; }
+.zarf__aciklama {
+  font-size: 0.98rem;
+  line-height: 1.8;
+  color: var(--govde);
+}
+
+.zarf__etiket {
+  font-family: var(--font-el);
+  font-style: italic;
+  font-size: 1.15rem;
+  letter-spacing: 0.5px;
+  color: var(--pembe-etiket);
+  margin: 1.6rem 0 0.4rem;
+  padding-top: 1.2rem;
+  border-top: 1px dotted rgba(190, 150, 120, 0.55);
+}
+
+.zarf__kagit .elyazisi {
+  margin-top: 0;
+  color: var(--tan-koyu);
+}
 
 /* ============================================================
    DİPNOT
