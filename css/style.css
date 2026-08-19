@@ -341,13 +341,17 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 
 .anlati { font-size: 1rem; }
 
+/* Sıcak kahve tonlu bölüm (02) */
+.bolum--sicak .bolum__altyazi { color: var(--tan-koyu); }
+.bolum--sicak .anlati { color: #6d5b49; }
+
 .anlati--ilk::first-letter {
   font-family: var(--font-brush);
-  font-size: 3.4rem;
+  font-size: 3.6rem;
   float: left;
-  line-height: 0.82;
-  padding: 0.1em 0.12em 0 0;
-  color: var(--murekkep);
+  line-height: 0.8;
+  padding: 0.08em 0.14em 0 0;
+  color: var(--tan-koyu);
 }
 
 .notluk {
@@ -379,7 +383,7 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 }
 .bant--pembe {
   background: repeating-linear-gradient(45deg, rgba(231, 179, 188, 0.95) 0 6px, rgba(255, 255, 255, 0.75) 6px 12px);
-  top: -12px; left: 50%; transform: translateX(-60%) rotate(-3deg);
+  top: -12px; left: 26%; transform: translateX(-50%) rotate(-4deg);
 }
 .bant--yesil {
   background: repeating-linear-gradient(45deg, rgba(169, 191, 163, 0.95) 0 6px, rgba(255, 255, 255, 0.7) 6px 12px);
@@ -1066,7 +1070,7 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 
   .ikili { grid-template-columns: 1.55fr 1fr; gap: 3.2rem; align-items: start; }
   .ikili--orta { grid-template-columns: 1fr 1fr; align-items: center; }
-  .notluk { margin: 2.5rem 0 0; }
+  .notluk { margin: 0.4rem 0 0; }
 
   .gulus__kompozisyon { flex-direction: row; align-items: flex-end; justify-content: center; gap: 0; }
   .polaroid--buyuk { width: 26rem; z-index: 1; }
