@@ -925,6 +925,20 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 }
 
 /* ============================================================
+   GÖRÜNMEZ YOUTUBE OYNATICI (sadece ses)
+   ============================================================ */
+.yt-gizli {
+  position: fixed;
+  left: -9999px;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  border: 0;
+}
+
+/* ============================================================
    KONFETİ
    ============================================================ */
 .konfeti-alan {

@@ -27,7 +27,8 @@ Proje klasöründe `python3 -m http.server` çalıştırıp tarayıcıda
 | Gizli/mühürlü not | `index.html` içinde `<!-- BURAYA EN KİŞİSEL, EN İÇTEN NOTU YAZ -->` |
 | Fotoğraf alt yazıları | `<!-- BURAYA ... ALT YAZISINI YAZ -->` yorumları |
 | Mumlar sönünce çıkan mesaj | `js/script.js` içindeki `KUTLAMA_MESAJI` |
-| Müzik | `assets/audio/song.mp3` — mp3 dosyanı bu adla bu klasöre kopyala |
+| Müzik (YouTube) | `js/script.js` içindeki `YOUTUBE_VIDEO_ID` — linkteki `v=` değeri |
+| Müzik (yerel dosya) | `js/script.js` içinde `MUZIK_KAYNAGI = "dosya"` yap, mp3'ü `assets/audio/song.mp3` olarak koy |
 | Renkler | `css/style.css` en üstteki `:root { --krem, --toz-pembe, --adacayi ... }` |
 
 `index.html` içindeki tüm düzenlenebilir yerler büyük harfli Türkçe
@@ -41,8 +42,28 @@ dizinine yükle. Derleme adımı gerekmiyor.
 Fotoğraflar imgur üzerinden, yazı tipleri (Caveat + Lora) Google Fonts üzerinden
 yükleniyor; yerel dosya indirmeye gerek yok.
 
+## Müzik nasıl çalışıyor?
+
+Varsayılan olarak şarkı **YouTube'un resmî gömülü oynatıcısından** çalıyor; sayfada
+görünmez bir oynatıcı var, köşedeki buton onu başlatıp durduruyor. Hiçbir dosya
+indirilmiyor, telif açısından sorun yok.
+
+Değiştirmek için `js/script.js` en üstü:
+
+```js
+var MUZIK_KAYNAGI  = "youtube";        // "youtube" veya "dosya"
+var YOUTUBE_VIDEO_ID = "q2U9uz3k0wY";  // youtube.com/watch?v=BURASI
+```
+
+Kendi mp3'ünü kullanmak istersen `MUZIK_KAYNAGI` değerini `"dosya"` yap ve dosyayı
+`assets/audio/song.mp3` olarak koy.
+
+Not: YouTube tarafında videonun gömülmesi kapatılmışsa (yükleyenin tercihi) o video
+sitede çalmaz; böyle bir durumda buton sessizce hiçbir şey yapar, başka bir video
+kimliği denemek gerekir.
+
 ## Notlar
 
-- Müzik dosyası yokken de site sorunsuz çalışır: play butonu sessizce hiçbir şey yapmaz.
+- Müzik kaynağına erişilemezse site yine sorunsuz çalışır: play butonu sessizce hiçbir şey yapmaz.
 - Autoplay yok (tarayıcılar engelliyor); müzik ancak butona basılınca başlar.
 - `prefers-reduced-motion` açık olan cihazlarda animasyonlar kendiliğinden kapanır.

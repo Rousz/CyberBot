@@ -16,6 +16,13 @@
   // BURAYA DOĞUM SAATİNİ YAZABİLİRSİN (bilinmiyorsa "00:00" kalabilir)
   var DOGUM_SAATI = "00:00";
 
+  // MÜZİK KAYNAĞI: "youtube"  → şarkı YouTube'dan çalar (dosya indirmeye gerek yok)
+  //                "dosya"    → assets/audio/song.mp3 dosyasını çalar
+  var MUZIK_KAYNAGI = "youtube";
+
+  // YouTube video kimliği (linkteki v= değeri). Şu anki: q2U9uz3k0wY
+  var YOUTUBE_VIDEO_ID = "q2U9uz3k0wY";
+
   /* ------------------------------------------------------------
      Yardımcılar
      ------------------------------------------------------------ */
@@ -252,13 +259,17 @@
 
   /* ------------------------------------------------------------
      7) ARKA PLAN MÜZİĞİ
-     Dosya (assets/audio/song.mp3) yoksa sessizce hiçbir şey olmaz.
+     İki kaynak destekli (yukarıdaki MUZIK_KAYNAGI sabiti seçer):
+       "youtube" → YouTube'un resmî gömülü oynatıcısı (görünmez)
+       "dosya"   → assets/audio/song.mp3
+     Her iki durumda da bir sorun olursa buton sessizce eski hâline döner.
      ------------------------------------------------------------ */
 
   var muzik = sec("#arkaMuzik");
   var muzikDugme = sec("#muzikDugme");
   var muzikIkon = sec("#muzikIkon");
   var muzikIpucu = sec("#muzikIpucu");
+  var youtubeModu = MUZIK_KAYNAGI === "youtube";
 
   function muzikDurumu(caliyor) {
     if (muzikIkon) { muzikIkon.textContent = caliyor ? "❚❚" : "▶"; }
@@ -272,38 +283,118 @@
     }
   }
 
-  if (muzik && muzikDugme) {
-    muzik.volume = 0.55;
+  /* --- YouTube tarafı --- */
+
+  var ytOynatici = null;   // YT.Player nesnesi
+  var ytIsteniyor = false; // kullanıcı bekliyor mu
+  var ytYukleniyor = false;
+
+  function ytApiYukle() {
+    if (ytYukleniyor || window.YT) { return; }
+    ytYukleniyor = true;
+
+    var betik = document.createElement("script");
+    betik.src = "https://www.youtube.com/iframe_api";
+    betik.async = true;
+    betik.onerror = function () {
+      // İnternet yok ya da engellenmiş — sessizce vazgeç
+      ytYukleniyor = false;
+      ytIsteniyor = false;
+      muzikDurumu(false);
+    };
+    document.head.appendChild(betik);
+  }
+
+  // YouTube API hazır olunca bu global fonksiyonu kendisi çağırır
+  window.onYouTubeIframeAPIReady = function () {
+    if (!document.getElementById("ytOynatici")) { return; }
+
+    ytOynatici = new YT.Player("ytOynatici", {
+      videoId: YOUTUBE_VIDEO_ID,
+      playerVars: {
+        autoplay: 0,
+        controls: 0,
+        disablekb: 1,
+        loop: 1,
+        playlist: YOUTUBE_VIDEO_ID, // loop'un çalışması için gerekli
+        modestbranding: 1,
+        playsinline: 1,
+        rel: 0
+      },
+      events: {
+        onReady: function (olay) {
+          olay.target.setVolume(55);
+          if (ytIsteniyor) { olay.target.playVideo(); }
+        },
+        onStateChange: function (olay) {
+          if (olay.data === YT.PlayerState.PLAYING) {
+            muzikDurumu(true);
+          } else if (olay.data === YT.PlayerState.PAUSED || olay.data === YT.PlayerState.ENDED) {
+            muzikDurumu(false);
+          }
+        },
+        onError: function () {
+          // Video gömülemiyor / kaldırılmış olabilir
+          ytIsteniyor = false;
+          muzikDurumu(false);
+        }
+      }
+    });
+  };
+
+  function youtubeAcKapa() {
+    if (!ytOynatici || typeof ytOynatici.getPlayerState !== "function") {
+      // Oynatıcı henüz kurulmadı: API'yi yükle, hazır olunca kendiliğinden başlasın
+      ytIsteniyor = true;
+      ytApiYukle();
+      return;
+    }
+
+    var durum = ytOynatici.getPlayerState();
+    if (durum === 1 || durum === 3) { // 1: çalıyor, 3: yükleniyor
+      ytOynatici.pauseVideo();
+      muzikDurumu(false);
+    } else {
+      ytOynatici.playVideo();
+    }
+  }
+
+  /* --- Yerel mp3 tarafı --- */
+
+  function dosyaAcKapa() {
+    if (!muzik) { return; }
+
+    if (muzik.paused) {
+      var sozVerilen = muzik.play();
+      if (sozVerilen && typeof sozVerilen.then === "function") {
+        sozVerilen.then(function () {
+          muzikDurumu(true);
+        }).catch(function () {
+          // Dosya yok ya da tarayıcı izin vermedi — sessizce eski hâline dön
+          muzikDurumu(false);
+        });
+      } else {
+        muzikDurumu(true);
+      }
+    } else {
+      muzik.pause();
+      muzikDurumu(false);
+    }
+  }
+
+  if (muzikDugme) {
+    if (muzik) { muzik.volume = 0.55; }
 
     muzikDugme.addEventListener("click", function () {
       if (muzikIpucu) { muzikIpucu.classList.add("gizle"); }
-
-      if (muzik.paused) {
-        var sozVerilen = muzik.play();
-        if (sozVerilen && typeof sozVerilen.then === "function") {
-          sozVerilen.then(function () {
-            muzikDurumu(true);
-          }).catch(function () {
-            // Dosya yok ya da tarayıcı izin vermedi — sessizce eski hâline dön
-            muzikDurumu(false);
-          });
-        } else {
-          muzikDurumu(true);
-        }
-      } else {
-        muzik.pause();
-        muzikDurumu(false);
-      }
+      if (youtubeModu) { youtubeAcKapa(); } else { dosyaAcKapa(); }
     });
 
-    muzik.addEventListener("error", function () { muzikDurumu(false); });
-    muzik.addEventListener("ended", function () { muzikDurumu(false); });
-    muzik.addEventListener("pause", function () { muzikDurumu(false); });
-    muzik.addEventListener("play", function () { muzikDurumu(true); });
-
-    // İlk etkileşimden sonra ipucu kendiliğinden solsun
-    window.setTimeout(function () {
-      if (muzikIpucu && !muzik.paused) { muzikIpucu.classList.add("gizle"); }
-    }, 30000);
+    if (muzik && !youtubeModu) {
+      muzik.addEventListener("error", function () { muzikDurumu(false); });
+      muzik.addEventListener("ended", function () { muzikDurumu(false); });
+      muzik.addEventListener("pause", function () { muzikDurumu(false); });
+      muzik.addEventListener("play", function () { muzikDurumu(true); });
+    }
   }
 })();

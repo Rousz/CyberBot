@@ -474,8 +474,13 @@
     <span class="muzik__ipucu" id="muzikIpucu">🔊 sesi açmayı unutma</span>
   </div>
 
-  <!-- Müzik dosyası: assets/audio/song.mp3 — dosya yoksa buton sessizce hiçbir şey yapmaz -->
+  <!-- Müzik dosyası: assets/audio/song.mp3 — dosya yoksa buton sessizce hiçbir şey yapmaz
+       (js/script.js içindeki MUZIK_KAYNAGI = "dosya" olduğunda kullanılır) -->
   <audio id="arkaMuzik" src="assets/audio/song.mp3" loop preload="none"></audio>
+
+  <!-- YouTube oynatıcısı buraya kurulur; görünmez, sadece ses için.
+       Video kimliği js/script.js içindeki YOUTUBE_VIDEO_ID sabitinde. -->
+  <div id="ytOynatici" class="yt-gizli" aria-hidden="true"></div>
 
   <!-- Konfeti parçacıkları buraya eklenir -->
   <div class="konfeti-alan" id="konfetiAlan" aria-hidden="true"></div>
