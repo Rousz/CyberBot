@@ -569,55 +569,77 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 }
 
 /* ============================================================
-   BÖLÜM 06 — ZAMAN ÇİZELGESİ
+   BÖLÜM 06 — ANI ÇİZGİSİ
    ============================================================ */
-.cizelge { position: relative; padding-left: 1.8rem; display: grid; gap: 1.3rem; }
+.cizelge { position: relative; padding-left: 1.9rem; display: grid; gap: 2rem; }
 .cizelge::before {
   content: "";
   position: absolute;
-  left: 5px; top: 6px; bottom: 6px;
-  width: 2px;
-  background: repeating-linear-gradient(180deg, var(--tan) 0 7px, transparent 7px 15px);
-  opacity: 0.65;
+  left: 6px;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: rgba(196, 158, 148, 0.5);
 }
 
 .cizelge__oge { position: relative; }
 .cizelge__oge::before {
   content: "";
   position: absolute;
-  left: -1.8rem; top: 1.5rem;
-  width: 13px; height: 13px;
+  left: -1.9rem;
+  top: 1.6rem;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: var(--pembe);
-  border: 3px solid var(--kagit);
-  box-shadow: 0 0 0 1px var(--tan);
+  background: var(--kagit);
+  border: 1.5px solid var(--pembe);
 }
-.cizelge__oge:nth-child(even)::before { background: var(--yesil); }
 
 .cizelge__kart {
-  background: var(--kagit-kart);
-  border: 1px solid rgba(180, 165, 140, 0.35);
-  border-radius: 4px;
-  padding: 1rem 1.15rem;
-  box-shadow: var(--golge-ince);
-  transition: transform 0.35s ease;
+  background: #fffdf9;
+  border-radius: 3px;
+  padding: 1.3rem 1.4rem;
+  box-shadow: 0 16px 32px rgba(58, 46, 40, 0.10), 0 2px 6px rgba(58, 46, 40, 0.05);
+  transition: transform 0.35s ease, box-shadow 0.35s ease;
 }
-.cizelge__kart:hover { transform: translateY(-4px); }
+.cizelge__kart:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 22px 42px rgba(58, 46, 40, 0.15), 0 2px 6px rgba(58, 46, 40, 0.06);
+}
+
 .cizelge__yil {
   display: inline-block;
   font-family: var(--font-el);
   font-style: italic;
-  font-size: 1rem;
+  font-size: 1.08rem;
   color: var(--pembe-etiket);
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
 }
+
 .cizelge__kart h3 {
-  font-family: var(--font-brush);
-  font-size: 1.65rem;
+  font-family: var(--font-govde);
+  font-weight: 600;
+  font-size: 1.1rem;
   color: var(--murekkep);
-  margin: 0.1rem 0 0.35rem;
+  margin: 0.1rem 0 0.55rem;
+  line-height: 1.35;
 }
-.cizelge__kart p { margin: 0; color: var(--soluk); font-size: 0.95rem; }
+
+.cizelge__foto {
+  width: 100%;
+  max-height: 14rem;
+  object-fit: cover;
+  border-radius: 2px;
+  margin: 0 0 0.9rem;
+  background: var(--kagit-eski);
+}
+
+.cizelge__kart p {
+  margin: 0;
+  color: var(--soluk);
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
 
 /* ============================================================
    BÖLÜM 07 — HOLLYWOOD (KOYU)
@@ -882,7 +904,7 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 .zarf__muhur {
   position: relative;
   z-index: 1;
-  width: 50px; height: 50px;
+  width: 62px; height: 62px;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -891,6 +913,15 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
   font-family: var(--font-brush);
   font-size: 1.6rem;
   box-shadow: 0 4px 10px rgba(58, 46, 40, 0.26);
+  overflow: hidden;
+}
+.zarf__muhur img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
 }
 .zarf__yazi {
   position: relative;
@@ -1079,12 +1110,13 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
   .damga-kart { padding: 3rem 2.6rem 2.4rem; }
   .damga { width: 128px; top: -44px; right: -34px; }
 
-  .cizelge { padding-left: 0; }
+  .cizelge { padding-left: 0; gap: 2.8rem; }
   .cizelge::before { left: 50%; transform: translateX(-50%); }
-  .cizelge__oge { width: 50%; padding-right: 2.4rem; }
-  .cizelge__oge:nth-child(even) { margin-left: 50%; padding-right: 0; padding-left: 2.4rem; }
-  .cizelge__oge::before { left: auto; right: -6.5px; }
-  .cizelge__oge:nth-child(even)::before { left: -6.5px; right: auto; }
+  .cizelge__oge { width: 50%; padding-right: 3rem; }
+  .cizelge__oge:nth-child(even) { margin-left: 50%; padding-right: 0; padding-left: 3rem; }
+  .cizelge__oge::before { left: auto; right: -6px; }
+  .cizelge__oge:nth-child(even)::before { left: -6px; right: auto; }
+  .cizelge__kart { padding: 1.5rem 1.7rem; }
 
   .mektup { padding: 2.6rem 3rem 2.2rem; }
   .mektup__govde p { font-size: 1.02rem; }

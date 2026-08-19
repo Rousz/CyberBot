@@ -279,68 +279,73 @@
     </section>
 
     <!-- ============================================================
-         BÖLÜM 06 — ZAMAN ÇİZELGESİ
+         BÖLÜM 06 — ANI ÇİZGİSİ
          ============================================================ -->
     <section class="bolum" id="anilar">
       <div class="sarmal">
-        <div class="bolum__ust reveal">
+        <div class="bolum__ust bolum__ust--sol reveal">
           <p class="bolum__etiket">bölüm 06</p>
-          <h2 class="bolum__baslik">Zaman Çizelgesi</h2>
-          <p class="bolum__altyazi">Kutular sonradan doldurulmak üzere bekliyor.</p>
+          <h2 class="bolum__baslik">Anı Çizgisi</h2>
+          <p class="bolum__altyazi">Kısa bir özet; tamamı ancak bir ömre sığar.</p>
           <span class="cizgi"></span>
         </div>
-
-        <figure class="polaroid polaroid--tek reveal">
-          <span class="bant bant--pembe bant--tepe" aria-hidden="true"></span>
-          <img
-            src="https://i.imgur.com/DDHU0cz.jpeg"
-            alt="Zaman çizelgesi bölümü için seçilmiş bir fotoğraf"
-            loading="lazy"
-            decoding="async"
-          />
-          <!-- BURAYA BU FOTOĞRAFIN ALT YAZISINI YAZ -->
-          <figcaption>zamanın bir yerinden</figcaption>
-        </figure>
 
         <ol class="cizelge">
           <!-- ANI 1 -->
           <li class="cizelge__oge reveal">
             <div class="cizelge__kart">
-              <!-- BURAYA YILI YAZ --><span class="cizelge__yil">yıl</span>
-              <!-- BURAYA ANININ BAŞLIĞINI YAZ --><h3>İlk anı</h3>
-              <!-- BURAYA ANI METNİNİ YAZ --><p>Bu anının metni buraya gelecek.</p>
+              <!-- BURAYA TARİHİ YAZ --><span class="cizelge__yil">14 Ağustos</span>
+              <!-- BURAYA BAŞLIĞI YAZ --><h3>Her şeyin başladığı gün</h3>
+              <!-- BURAYA ANI METNİNİ YAZ -->
+              <p>O gün dünya, farkında olmadan en güzel sakinlerinden birine kavuştu.</p>
             </div>
           </li>
-          <!-- ANI 2 -->
+
+          <!-- ANI 2 — fotoğraflı kart -->
           <li class="cizelge__oge reveal">
             <div class="cizelge__kart">
-              <!-- BURAYA YILI YAZ --><span class="cizelge__yil">yıl</span>
-              <!-- BURAYA ANININ BAŞLIĞINI YAZ --><h3>İkinci anı</h3>
-              <!-- BURAYA ANI METNİNİ YAZ --><p>Bu anının metni buraya gelecek.</p>
+              <!-- BURAYA TARİHİ YAZ --><span class="cizelge__yil">2012</span>
+              <!-- BURAYA BAŞLIĞI YAZ --><h3>Küçük dev adımlar</h3>
+              <!-- BURAYA KARTIN FOTOĞRAF ADRESİNİ YAZ -->
+              <img
+                class="cizelge__foto"
+                src="https://i.imgur.com/DDHU0cz.jpeg"
+                alt="Bu anıya ait fotoğraf"
+                loading="lazy"
+                decoding="async"
+              />
+              <!-- BURAYA ANI METNİNİ YAZ -->
+              <p>Bir odanın ortasında kahkaha nasıl atılır, herkes ondan öğrendi.</p>
             </div>
           </li>
+
           <!-- ANI 3 -->
           <li class="cizelge__oge reveal">
             <div class="cizelge__kart">
-              <!-- BURAYA YILI YAZ --><span class="cizelge__yil">yıl</span>
-              <!-- BURAYA ANININ BAŞLIĞINI YAZ --><h3>Üçüncü anı</h3>
-              <!-- BURAYA ANI METNİNİ YAZ --><p>Bu anının metni buraya gelecek.</p>
+              <!-- BURAYA TARİHİ YAZ --><span class="cizelge__yil">2016</span>
+              <!-- BURAYA BAŞLIĞI YAZ --><h3>Defterler dolusu hayal</h3>
+              <!-- BURAYA ANI METNİNİ YAZ -->
+              <p>O yılların defter sayfaları hâlâ saklanıyor; hepsinin kenarında küçük çiçekler var.</p>
             </div>
           </li>
+
           <!-- ANI 4 -->
           <li class="cizelge__oge reveal">
             <div class="cizelge__kart">
-              <!-- BURAYA YILI YAZ --><span class="cizelge__yil">yıl</span>
-              <!-- BURAYA ANININ BAŞLIĞINI YAZ --><h3>Dördüncü anı</h3>
-              <!-- BURAYA ANI METNİNİ YAZ --><p>Bu anının metni buraya gelecek.</p>
+              <!-- BURAYA TARİHİ YAZ --><span class="cizelge__yil">2021</span>
+              <!-- BURAYA BAŞLIĞI YAZ --><h3>Kendi yolunu çizenlerden</h3>
+              <!-- BURAYA ANI METNİNİ YAZ -->
+              <p>Kimse onu birine benzetemedi; iyi ki benzetemedi.</p>
             </div>
           </li>
+
           <!-- ANI 5 -->
           <li class="cizelge__oge reveal">
             <div class="cizelge__kart">
-              <!-- BURAYA YILI YAZ --><span class="cizelge__yil">yıl</span>
-              <!-- BURAYA ANININ BAŞLIĞINI YAZ --><h3>Beşinci anı</h3>
-              <!-- BURAYA ANI METNİNİ YAZ --><p>Bu anının metni buraya gelecek.</p>
+              <!-- BURAYA TARİHİ YAZ --><span class="cizelge__yil">bugün</span>
+              <!-- BURAYA BAŞLIĞI YAZ --><h3>Ve hikâye sürüyor</h3>
+              <!-- BURAYA ANI METNİNİ YAZ -->
+              <p>Bu sayfa da o hikâyenin küçük bir parçası. Devamı, her 14 Ağustos'ta yazılmaya devam edecek.</p>
             </div>
           </li>
         </ol>
@@ -482,7 +487,9 @@
 
         <div class="zarf reveal" id="zarf">
           <button type="button" class="zarf__kapak" id="zarfDugme" aria-expanded="false" aria-controls="zarfIcerik">
-            <span class="zarf__muhur" aria-hidden="true">Z</span>
+            <!-- BURAYA MÜHÜR GÖRSELİNİN ADRESİNİ YAZ.
+                 Görsel açılmazsa arkadaki "Z" harfi görünür. -->
+            <span class="zarf__muhur" aria-hidden="true">Z<img src="https://i.imgur.com/GzkiLoc.png" alt="" decoding="async" /></span>
             <span class="zarf__yazi">Zarfı aç</span>
           </button>
 

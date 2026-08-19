@@ -14,7 +14,7 @@ assets/audio/song.mp3      → yerel müzik seçeneği (sadece "dosya" modunda g
 
 Bölümler: kapak → kayan şerit → 01 Onu Özel Yapan Küçük Şeyler → 02 Neden Şanslıyız →
 03 Dünyanın En Güzel Gülüşü → 04 Çocukluk Köşesi → 05 Zamanın Damgası →
-06 Zaman Çizelgesi → 07 Hollywood'dan Gizemli Bir Tebrik → 08 Mumları Üflemek Kaldı →
+06 Anı Çizgisi → 07 Hollywood'dan Gizemli Bir Tebrik → 08 Mumları Üflemek Kaldı →
 09 Mühürlü Köşe
 
 ## Önizleme
@@ -30,7 +30,9 @@ Proje klasöründe `python3 -m http.server` çalıştırıp tarayıcıda
 | Hollywood avatarı | `index.html` içindeki `id="mektupAvatar"` görselinin `src` adresi (şu an imgur) |
 | Kayan şeritteki sözler | `index.html` içinde `<!-- BURAYA ŞERİTTE DÖNECEK SÖZLERİ YAZ -->` — **iki kopyayı da** güncelle (döngü için ikisi aynı olmalı) |
 | Doğum saati (isteğe bağlı) | `js/script.js` içindeki `DOGUM_SAATI` sabiti |
-| Anı metinleri | `index.html` içinde `<!-- BURAYA ANI METNİNİ YAZ -->` yorumlarının olduğu 5 kart |
+| Anı metinleri | `index.html` içinde `<!-- BURAYA ANI METNİNİ YAZ -->` yorumlarının olduğu 5 kart (tarih, başlık, metin) |
+| Anı kartındaki fotoğraf | 2. kartın içindeki `cizelge__foto` görselinin `src` adresi |
+| Zarf mührü görseli | `index.html` içinde `zarf__muhur` içindeki görselin `src` adresi |
 | Gizli/mühürlü not | `index.html` içinde `<!-- BURAYA EN KİŞİSEL, EN İÇTEN NOTU YAZ -->` |
 | Fotoğraf alt yazıları | `<!-- BURAYA ... ALT YAZISINI YAZ -->` yorumları |
 | Mumlar sönünce çıkan mesaj | `js/script.js` içindeki `KUTLAMA_MESAJI` |
