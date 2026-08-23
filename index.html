@@ -517,6 +517,78 @@
       </div>
     </section>
 
+
+    <!-- ============================================================
+         BÖLÜM 10 — YAPIMCIYA NOT İLET
+         ============================================================ -->
+    <section class="bolum bolum--not" id="notBolum">
+      <div class="sarmal sarmal--dar">
+        <div class="bolum__ust reveal">
+          <p class="bolum__etiket">bölüm 10</p>
+          <h2 class="bolum__baslik">Yapımcıya Not İlet</h2>
+          <p class="bolum__altyazi">Bu sayfayı yapan kişiye bir şey söylemek isteyen buradan yazabilir.</p>
+          <span class="cizgi"></span>
+        </div>
+
+        <div class="not-kutu reveal">
+          <p class="not-hazirlaniyor" id="notHazirlaniyor" hidden>
+            Bu bölüm birazdan açılıyor.
+          </p>
+
+          <!-- İki yol: Zara ya da diğer herkes -->
+          <div class="not-secim" id="notSecim" hidden>
+            <button type="button" class="not-dugme not-dugme--zara" id="zaraDugme">
+              <span class="not-dugme__ust">Eğer Zara'ysan</span>
+              <span class="not-dugme__alt">buraya tıkla</span>
+            </button>
+            <button type="button" class="not-dugme" id="notAcDugme">
+              <span class="not-dugme__ust">Zara değilsen</span>
+              <span class="not-dugme__alt">yapımcıya not bırak</span>
+            </button>
+          </div>
+
+          <!-- Güvenlik sorusu -->
+          <div class="not-panel" id="soruAlani" hidden>
+            <p class="not-panel__baslik">Küçük bir güvenlik sorusu</p>
+            <!-- BURAYA GÜVENLİK SORUSUNU YAZ (cevabı js/not.js içinde) -->
+            <p class="not-soru">Yapımcı'nın yemeyi en sevdiği şey nedir?</p>
+            <form id="soruForm" class="not-form">
+              <input type="text" id="soruGirdi" autocomplete="off" placeholder="cevabın..." required />
+              <p class="not-uyari" id="soruUyari" hidden></p>
+              <div class="not-form__dugmeler">
+                <button type="button" class="dugme" data-geri>Vazgeç</button>
+                <button type="submit" class="dugme dugme--dolu">Gönder</button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Herkese açık not -->
+          <div class="not-panel" id="notAlani" hidden>
+            <p class="not-panel__baslik">Yapımcıya not</p>
+            <form id="notForm" class="not-form">
+              <input type="text" id="notAd" maxlength="40" placeholder="adın (istersen boş bırak)" />
+              <textarea id="notMetin" rows="4" maxlength="800" placeholder="yazmak istediğin şey..." required></textarea>
+              <div class="not-form__dugmeler">
+                <button type="button" class="dugme" data-geri>Vazgeç</button>
+                <button type="submit" class="dugme dugme--dolu">Notu ilet</button>
+              </div>
+            </form>
+            <p class="not-durum" id="notDurum" hidden>Notun iletildi. Teşekkürler.</p>
+          </div>
+
+          <!-- Sohbet (sadece doğru cevaptan sonra) -->
+          <div class="not-panel" id="sohbetAlani" hidden>
+            <p class="not-panel__baslik">Yapımcıyla sohbet</p>
+            <div class="sohbet__liste" id="sohbetListe"></div>
+            <form id="sohbetForm" class="sohbet__form">
+              <input type="text" id="sohbetGirdi" autocomplete="off" placeholder="mesajını yaz..." required />
+              <button type="submit" class="dugme dugme--dolu">Gönder</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <footer class="dipnot">
@@ -543,6 +615,15 @@
 
   <div class="konfeti-alan" id="konfetiAlan" aria-hidden="true"></div>
 
+  <!-- Doğru cevap verilince açılan büyük mesaj -->
+  <div class="buyuk-mesaj" id="buyukMesajPerde" hidden>
+    <div class="buyuk-mesaj__kutu">
+      <p class="buyuk-mesaj__metin" id="buyukMesajMetin"></p>
+      <button type="button" class="dugme dugme--dolu" id="buyukMesajKapat">Sohbete geç</button>
+    </div>
+  </div>
+
   <script src="js/script.js"></script>
+  <script type="module" src="js/not.js"></script>
 </body>
 </html>

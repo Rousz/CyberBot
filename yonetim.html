@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Yönetim</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/yonetim.css" />
+</head>
+<body>
+
+  <!-- Giriş ekranı -->
+  <main class="giris" id="girisEkrani">
+    <form class="giris__kutu" id="girisForm">
+      <h1>Yönetim</h1>
+      <p class="giris__alt">Bu sayfa yalnızca yapımcıya açıktır.</p>
+      <input type="email" id="eposta" placeholder="e-posta" autocomplete="username" required />
+      <input type="password" id="sifre" placeholder="şifre" autocomplete="current-password" required />
+      <p class="uyari" id="girisUyari" hidden></p>
+      <button type="submit" class="dugme">Giriş yap</button>
+    </form>
+  </main>
+
+  <!-- Panel -->
+  <main class="panel" id="panelEkrani" hidden>
+    <header class="panel__ust">
+      <h1>Yönetim</h1>
+      <div class="panel__sekmeler">
+        <button type="button" class="sekme sekme--aktif" data-sekme="notlar">Notlar <span class="rozet" id="notSayisi">0</span></button>
+        <button type="button" class="sekme" data-sekme="sohbetler">Sohbetler <span class="rozet" id="sohbetSayisi">0</span></button>
+      </div>
+      <button type="button" class="cikis" id="cikisDugme">Çıkış</button>
+    </header>
+
+    <!-- Notlar -->
+    <section class="bolum" id="notlarBolum">
+      <ul class="liste" id="notListe"></ul>
+      <p class="bos" id="notBos" hidden>Henüz not yok.</p>
+    </section>
+
+    <!-- Sohbetler -->
+    <section class="bolum" id="sohbetlerBolum" hidden>
+      <div class="sohbet-duzen">
+        <ul class="liste liste--dar" id="sohbetListe"></ul>
+        <div class="sohbet-pencere" id="sohbetPencere" hidden>
+          <p class="sohbet-baslik" id="sohbetBaslik"></p>
+          <div class="mesajlar" id="mesajlar"></div>
+          <form class="cevap" id="cevapForm">
+            <input type="text" id="cevapGirdi" placeholder="cevabını yaz..." autocomplete="off" required />
+            <button type="submit" class="dugme">Gönder</button>
+          </form>
+        </div>
+        <p class="bos" id="sohbetBos" hidden>Henüz sohbet yok.</p>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="js/yonetim.js"></script>
+</body>
+</html>

@@ -190,6 +190,9 @@
     }
   }
 
+  // Diğer betikler de kullanabilsin
+  window.konfetiPatlat = konfetiPatlat;
+
   /* ------------------------------------------------------------
      5) MUM ÜFLEME
      ------------------------------------------------------------ */
