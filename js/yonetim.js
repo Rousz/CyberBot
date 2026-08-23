@@ -31,6 +31,31 @@ if (!AYAR_HAZIR) {
   calistir();
 }
 
+let notOkunmamis = 0;
+let sohbetOkunmamis = 0;
+let oncekiOkunmamis = -1;
+
+function basligiGuncelle() {
+  const toplam = notOkunmamis + sohbetOkunmamis;
+  document.title = toplam > 0 ? "(" + toplam + ") Yönetim" : "Yönetim";
+}
+
+function bildirimIzniIste() {
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+}
+
+function bildirimGoster() {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  if (!document.hidden) return; // sekme zaten açıksa rahatsız etme
+  try {
+    new Notification("Zara yazdı", { body: "Yönetim panelinde yeni mesaj var." });
+  } catch (hata) {
+    // bildirim engellenmişse sessizce geç
+  }
+}
+
 function tarihYaz(damga) {
   if (!damga || typeof damga.toDate !== "function") return "";
   const t = damga.toDate();
@@ -71,6 +96,7 @@ function calistir() {
     if (yetkili) {
       girisEkrani.hidden = true;
       panelEkrani.hidden = false;
+      bildirimIzniIste();
       notlariDinle();
       sohbetleriDinle();
     } else {
@@ -125,6 +151,8 @@ function calistir() {
       });
 
       sec("#notSayisi").textContent = String(okunmamis);
+      notOkunmamis = okunmamis;
+      basligiGuncelle();
     });
   }
 
@@ -135,12 +163,18 @@ function calistir() {
       const liste = sec("#sohbetListe");
       liste.innerHTML = "";
       sec("#sohbetBos").hidden = !anlik.empty;
-      sec("#sohbetSayisi").textContent = String(anlik.size);
+
+      let okunmamisSohbet = 0;
 
       anlik.forEach((belge) => {
         const veri = belge.data();
+        const yeni = veri.sonYazan === "zara" && veri.yapimciOkudu === false;
+        if (yeni) okunmamisSohbet += 1;
+
         const oge = document.createElement("li");
-        oge.className = "kart kart--tiklanir" + (belge.id === acikSohbetId ? " kart--secili" : "");
+        oge.className = "kart kart--tiklanir"
+          + (belge.id === acikSohbetId ? " kart--secili" : "")
+          + (yeni ? " kart--yeni" : "");
         oge.innerHTML =
           '<div class="kart__ust"><span class="kart__ad"></span><span class="kart__tarih"></span></div>' +
           '<p class="kart__metin"></p>';
@@ -150,11 +184,19 @@ function calistir() {
         oge.addEventListener("click", () => sohbetiAc(belge.id, veri.baslik || "Zara"));
         liste.appendChild(oge);
       });
+
+      sec("#sohbetSayisi").textContent = String(okunmamisSohbet || anlik.size);
+      sohbetOkunmamis = okunmamisSohbet;
+      basligiGuncelle();
+
+      if (okunmamisSohbet > oncekiOkunmamis && oncekiOkunmamis >= 0) bildirimGoster();
+      oncekiOkunmamis = okunmamisSohbet;
     });
   }
 
   function sohbetiAc(id, baslik) {
     acikSohbetId = id;
+    setDoc(doc(vt, "sohbetler", id), { yapimciOkudu: true }, { merge: true });
     sec("#sohbetPencere").hidden = false;
     sec("#sohbetBaslik").textContent = baslik;
 
@@ -189,7 +231,9 @@ function calistir() {
     });
     await setDoc(doc(vt, "sohbetler", acikSohbetId), {
       sonMesaj: "Sen: " + metin.slice(0, 70),
-      sonTarih: serverTimestamp()
+      sonTarih: serverTimestamp(),
+      sonYazan: "yapimci",
+      yapimciOkudu: true
     }, { merge: true });
   });
 }

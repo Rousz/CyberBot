@@ -57,6 +57,7 @@ const sohbetListe = sec("#sohbetListe");
 const sohbetForm = sec("#sohbetForm");
 const sohbetGirdi = sec("#sohbetGirdi");
 
+const kisayol = sec("#notKisayol");
 const perde = sec("#buyukMesajPerde");
 const perdeMetin = sec("#buyukMesajMetin");
 const perdeKapat = sec("#buyukMesajKapat");
@@ -188,7 +189,17 @@ async function baslat() {
       orderBy("tarih", "asc")
     );
 
+    let oncekiSayi = -1;
+
     dinleyiciKapat = onSnapshot(mesajlar, (anlik) => {
+      // Yapımcıdan yeni mesaj geldiyse ve bölüm ekranda değilse kısayolu işaretle
+      let sonKim = null;
+      anlik.forEach((b) => { sonKim = b.data().kim; });
+      if (oncekiSayi >= 0 && anlik.size > oncekiSayi && sonKim === "yapimci") {
+        yeniMesajIsareti();
+      }
+      oncekiSayi = anlik.size;
+
       sohbetListe.innerHTML = "";
       if (anlik.empty) {
         const bos = document.createElement("p");
@@ -224,10 +235,44 @@ async function baslat() {
         await setDoc(doc(vt, "sohbetler", odaId), {
           sahip: kullaniciId,
           sonMesaj: metin.slice(0, 80),
-          sonTarih: serverTimestamp()
+          sonTarih: serverTimestamp(),
+          sonYazan: "zara",
+          yapimciOkudu: false
         }, { merge: true });
       });
     }
+  }
+
+  /* --- "Yeni mesaj" rozeti --- */
+
+  function bolumEkrandaMi() {
+    if (!bolum) return false;
+    const k = bolum.getBoundingClientRect();
+    return k.top < window.innerHeight * 0.75 && k.bottom > 0;
+  }
+
+  function yeniMesajIsareti() {
+    if (!kisayol || bolumEkrandaMi()) return;
+    kisayol.classList.add("not-kisayol--yeni");
+    const uzun = kisayol.querySelector(".not-kisayol__uzun");
+    const kisa = kisayol.querySelector(".not-kisayol__kisa");
+    if (uzun) uzun.textContent = "yapımcı cevap yazdı";
+    if (kisa) kisa.textContent = "yeni mesaj";
+  }
+
+  function isaretiTemizle() {
+    if (!kisayol || !kisayol.classList.contains("not-kisayol--yeni")) return;
+    kisayol.classList.remove("not-kisayol--yeni");
+    const uzun = kisayol.querySelector(".not-kisayol__uzun");
+    const kisa = kisayol.querySelector(".not-kisayol__kisa");
+    if (uzun) uzun.textContent = "yapımcıya not bırak";
+    if (kisa) kisa.textContent = "not bırak";
+  }
+
+  if (bolum && "IntersectionObserver" in window) {
+    new IntersectionObserver((kayitlar) => {
+      kayitlar.forEach((k) => { if (k.isIntersecting) isaretiTemizle(); });
+    }, { threshold: 0.25 }).observe(bolum);
   }
 
   /* --- Herkese açık not --- */

@@ -1052,6 +1052,7 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
    ============================================================ */
 .not-kisayol {
   position: fixed;
+  overflow: visible;
   left: 0.9rem;
   bottom: 0.9rem;
   z-index: 50;
@@ -1077,6 +1078,29 @@ ul, ol { margin: 0; padding: 0; list-style: none; }
 }
 .not-kisayol__ikon { font-size: 1rem; }
 .not-kisayol__kisa { display: none; }
+
+/* Yapımcıdan cevap geldiğinde kısayol dikkat çeksin */
+.not-kisayol--yeni {
+  background: linear-gradient(145deg, #a8b89a, #8ea37f);
+  animation: kisayolYeni 1.6s ease-in-out infinite;
+}
+.not-kisayol--yeni .not-kisayol__ikon::after {
+  content: "";
+  position: absolute;
+  top: 0.35rem;
+  left: 0.55rem;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff2b0;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.12);
+}
+.not-kisayol--yeni .not-kisayol__ikon { position: static; }
+
+@keyframes kisayolYeni {
+  0%, 100% { box-shadow: 0 8px 22px rgba(90, 120, 80, 0.35), 0 0 0 0 rgba(168, 184, 154, 0.6); }
+  70%      { box-shadow: 0 8px 22px rgba(90, 120, 80, 0.35), 0 0 0 15px rgba(168, 184, 154, 0); }
+}
 
 /* Not bölümü ekrandayken kısayol çekilsin */
 .not-kisayol.gizle {
