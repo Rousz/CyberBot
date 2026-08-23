@@ -14,7 +14,8 @@ const DOGRU_CEVAP_BASLANGIC = "et";
 const BUYUK_MESAJ = "Aferim kiz soru basitti ama tek sen dogru cevap verirdin, gel yazisak.";
 
 const SAKLAMA_ANAHTARI = "zara_sohbet_kimlik";
-const KILIT_ANAHTARI = "zara_kilit_acik";
+// Not: kilit bilerek hatırlanmıyor — soru her sayfa yenilemesinde tekrar sorulur.
+const ESKI_KILIT_ANAHTARI = "zara_kilit_acik";
 
 /* --- Kısa yollar --- */
 const sec = (s) => document.querySelector(s);
@@ -123,23 +124,17 @@ async function baslat() {
   function araYuzuKur() {
     gizle(hazirlaniyorNot);
     goster(secimAlani);
-
-    // Daha önce kilidi açtıysa doğrudan sohbete
-    if (localStorage.getItem(KILIT_ANAHTARI) === "1" && localStorage.getItem(SAKLAMA_ANAHTARI)) {
-      sohbetiBaslat(localStorage.getItem(SAKLAMA_ANAHTARI));
-    }
+    // Eski sürümden kalan kilit varsa temizle: soru her açılışta sorulmalı
+    localStorage.removeItem(ESKI_KILIT_ANAHTARI);
   }
 
   /* --- Zara kapısı --- */
   if (zaraDugme) {
     zaraDugme.addEventListener("click", () => {
-      const mevcut = localStorage.getItem(SAKLAMA_ANAHTARI);
-      if (localStorage.getItem(KILIT_ANAHTARI) === "1" && mevcut) {
-        sohbetiBaslat(mevcut);
-      } else {
-        paneliAc(soruAlani);
-        if (soruGirdi) soruGirdi.focus();
-      }
+      // Sohbet geçmişi dursa bile soru her seferinde sorulur
+      paneliAc(soruAlani);
+      if (soruGirdi) { soruGirdi.value = ""; soruGirdi.focus(); }
+      if (soruUyari) soruUyari.hidden = true;
     });
   }
 
@@ -153,7 +148,6 @@ async function baslat() {
         return;
       }
       soruUyari.hidden = true;
-      localStorage.setItem(KILIT_ANAHTARI, "1");
       await sohbetOdasiHazirla();
       buyukMesajiGoster();
     });
