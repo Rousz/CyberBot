@@ -261,7 +261,37 @@
   }
 
   /* ------------------------------------------------------------
-     7) MEKTUP AVATARI
+     7) NOT KISAYOLU
+     Bölüm ekrandayken buton çekilir; tıklanınca kutu vurgulanır.
+     ------------------------------------------------------------ */
+
+  var notKisayol = sec("#notKisayol");
+  var notBolum = sec("#notBolum");
+  var notKutu = notBolum ? notBolum.querySelector(".not-kutu") : null;
+
+  if (notKisayol && notBolum && "IntersectionObserver" in window) {
+    var kisayolGozlemci = new IntersectionObserver(function (kayitlar) {
+      kayitlar.forEach(function (kayit) {
+        notKisayol.classList.toggle("gizle", kayit.isIntersecting);
+      });
+    }, { threshold: 0.25 });
+    kisayolGozlemci.observe(notBolum);
+  }
+
+  if (notKisayol && notKutu) {
+    notKisayol.addEventListener("click", function () {
+      notKutu.classList.remove("vurgu");
+      // sınıfı yeniden ekleyebilmek için tarayıcıyı bir kare beklet
+      window.requestAnimationFrame(function () {
+        window.requestAnimationFrame(function () {
+          notKutu.classList.add("vurgu");
+        });
+      });
+    });
+  }
+
+  /* ------------------------------------------------------------
+     8) MEKTUP AVATARI
      Fotoğraf (assets/img/tom-hardy.jpg) yoksa yerine baş harf gelir.
      ------------------------------------------------------------ */
 
@@ -282,7 +312,7 @@
   }
 
   /* ------------------------------------------------------------
-     8) ARKA PLAN MÜZİĞİ
+     9) ARKA PLAN MÜZİĞİ
      İki kaynak destekli (yukarıdaki MUZIK_KAYNAGI sabiti seçer):
        "youtube" → YouTube'un resmî gömülü oynatıcısı (görünmez)
        "dosya"   → assets/audio/song.mp3
