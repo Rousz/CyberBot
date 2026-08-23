@@ -150,16 +150,29 @@ async function baslat() {
       }
       soruUyari.hidden = true;
       if (window.SesEfekt) { window.SesEfekt.dogruCevap(); }
-      await sohbetOdasiHazirla();
+
+      // Önce mesaj: sohbet odası kurulamasa bile ekran açılsın
       buyukMesajiGoster();
+
+      try {
+        await sohbetOdasiHazirla();
+        sohbetHatasi = null;
+      } catch (hata) {
+        sohbetHatasi = hata;
+      }
     });
   }
 
   async function sohbetOdasiHazirla() {
     let id = localStorage.getItem(SAKLAMA_ANAHTARI);
     if (id) {
-      const belge = await getDoc(doc(vt, "sohbetler", id));
-      if (belge.exists()) return id;
+      try {
+        const belge = await getDoc(doc(vt, "sohbetler", id));
+        if (belge.exists()) return id;
+      } catch (hata) {
+        // Kayıtlı kimliğe erişilemiyor (silinmiş ya da izin yok): yenisini kur
+      }
+      localStorage.removeItem(SAKLAMA_ANAHTARI);
     }
     const yeni = doc(collection(vt, "sohbetler"));
     await setDoc(yeni, {
@@ -175,9 +188,23 @@ async function baslat() {
 
   /* --- Sohbet --- */
   let dinleyiciKapat = null;
+  let sohbetHatasi = null;
+
+  function sohbetHatasiniGoster(hata) {
+    paneliAc(sohbetAlani);
+    if (sohbetForm) sohbetForm.hidden = true;
+    if (!sohbetListe) return;
+    sohbetListe.innerHTML = "";
+    const kutu = document.createElement("p");
+    kutu.className = "sohbet__bos";
+    const kod = (hata && (hata.code || hata.message)) ? String(hata.code || hata.message) : "bilinmiyor";
+    kutu.textContent = "Sohbet başlatılamadı. Sayfayı yenileyip tekrar dener misin? (" + kod + ")";
+    sohbetListe.appendChild(kutu);
+  }
 
   async function sohbetiBaslat(id) {
     paneliAc(sohbetAlani);
+    if (sohbetForm) sohbetForm.hidden = false;
     if (dinleyiciKapat) dinleyiciKapat();
 
     const mesajlar = query(
@@ -320,9 +347,16 @@ async function baslat() {
     perdeKapat.addEventListener("click", async () => {
       perde.hidden = true;
       document.body.style.overflow = "";
-      const id = await sohbetOdasiHazirla();
-      sohbetiBaslat(id);
       bolum.scrollIntoView({ behavior: "smooth", block: "center" });
+
+      try {
+        const id = await sohbetOdasiHazirla();
+        sohbetHatasi = null;
+        sohbetiBaslat(id);
+      } catch (hata) {
+        sohbetHatasi = hata;
+        sohbetHatasiniGoster(hata);
+      }
     });
   }
 
