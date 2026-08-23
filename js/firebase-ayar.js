@@ -1,23 +1,24 @@
 /* ============================================================
    FIREBASE AYARLARI
    ------------------------------------------------------------
-   BURAYI DOLDUR. Değerleri Firebase konsolundan alacaksın:
-   Proje Ayarları (dişli) → Genel → "Uygulamalarınız" → Web app → SDK yapılandırması
-
-   Bu değerlerin herkese açık olması normaldir; güvenlik, Firestore
-   kurallarıyla sağlanıyor (bkz. FIREBASE-KURULUM.md).
+   Bu değerler Firebase konsolundan gelir ve herkese açık olması
+   normaldir (Firebase böyle çalışır). Güvenliği Firestore
+   kuralları sağlar — bkz. FIREBASE-KURULUM.md
    ============================================================ */
 
 export const FIREBASE_AYAR = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: ""
+  apiKey: "AIzaSyDerQuEyBYL2bFw0LW2WtJWzvaSa-vEyik",
+  authDomain: "zaraisimlihanimefendi-16e8b.firebaseapp.com",
+  projectId: "zaraisimlihanimefendi-16e8b",
+  storageBucket: "zaraisimlihanimefendi-16e8b.firebasestorage.app",
+  messagingSenderId: "253896289924",
+  appId: "1:253896289924:web:c5edfc568848147f6b9cd1"
 };
 
-// BURAYA KENDİ E-POSTANI YAZ — yönetim sayfasına sadece bu hesap girebilir
+/* BURAYA YÖNETİM E-POSTANI YAZ
+   (Firestore kurallarına ve Authentication → Users'a girdiğin e-posta)
+   Boş bırakıldığında yönetim sayfası herkesin girişini kabul eder ama
+   veriyi yine kurallar korur; yani notlar ve sohbetler görünmez. */
 export const YONETICI_EPOSTA = "";
 
 // Ayarlar doldurulmuş mu?
