@@ -142,12 +142,14 @@ async function baslat() {
     soruForm.addEventListener("submit", async (olay) => {
       olay.preventDefault();
       if (!cevapDogruMu(soruGirdi.value)) {
+        if (window.SesEfekt) { window.SesEfekt.yanlisCevap(); }
         soruUyari.textContent = "Olmadı. Bir daha düşün.";
         soruUyari.hidden = false;
         soruGirdi.select();
         return;
       }
       soruUyari.hidden = true;
+      if (window.SesEfekt) { window.SesEfekt.dogruCevap(); }
       await sohbetOdasiHazirla();
       buyukMesajiGoster();
     });
@@ -220,6 +222,7 @@ async function baslat() {
         const metin = sohbetGirdi.value.trim();
         if (!metin) return;
         sohbetGirdi.value = "";
+        if (window.SesEfekt) { window.SesEfekt.mesaj(); }
         const odaId = localStorage.getItem(SAKLAMA_ANAHTARI);
         await addDoc(collection(vt, "sohbetler", odaId, "mesajlar"), {
           kim: "zara",
@@ -295,6 +298,7 @@ async function baslat() {
         });
         notForm.hidden = true;
         notDurum.hidden = false;
+        if (window.SesEfekt) { window.SesEfekt.mesaj(); }
       } catch (hata) {
         notDurum.textContent = "Not gönderilemedi, birazdan tekrar dene.";
         notDurum.hidden = false;

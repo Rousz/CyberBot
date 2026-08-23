@@ -214,8 +214,13 @@
 
     mum.classList.add("sonuk");
     mum.setAttribute("aria-pressed", "true");
+    if (window.SesEfekt) { window.SesEfekt.mumSondur(); }
 
     if (sonukMumSayisi() === mumlar.length) {
+      // üfleme sesinin üstüne binmesin diye kısa bir gecikme
+      window.setTimeout(function () {
+        if (window.SesEfekt) { window.SesEfekt.kutlama(); }
+      }, 220);
       if (pastaMesaj) {
         pastaMesaj.textContent = KUTLAMA_MESAJI;
         pastaMesaj.classList.add("gorunur");
@@ -235,6 +240,7 @@
         mum.classList.remove("sonuk");
         mum.setAttribute("aria-pressed", "false");
       });
+      if (window.SesEfekt) { window.SesEfekt.mumYak(); }
       if (pastaMesaj) {
         pastaMesaj.classList.remove("gorunur");
         pastaMesaj.textContent = "";
@@ -256,7 +262,12 @@
       var acildi = zarf.classList.toggle("acik");
       zarfDugme.setAttribute("aria-expanded", acildi ? "true" : "false");
       if (zarfYazi) { zarfYazi.textContent = acildi ? "Zarfı kapat" : "Zarfı aç"; }
-      if (acildi) { konfetiPatlat(24); }
+      if (acildi) {
+        konfetiPatlat(24);
+        if (window.SesEfekt) { window.SesEfekt.zarfAc(); }
+      } else {
+        if (window.SesEfekt) { window.SesEfekt.zarfKapat(); }
+      }
     });
   }
 
