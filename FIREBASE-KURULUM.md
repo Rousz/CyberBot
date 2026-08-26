@@ -37,7 +37,7 @@ service cloud.firestore {
 
     function yonetici() {
       return request.auth != null
-             && request.auth.token.email == 'SENIN@EPOSTAN.com';
+             && request.auth.token.email == 'berkantaha20051@gmail.com';
     }
 
     // Notlar: herkes yazabilir, sadece yönetici okuyabilir
@@ -49,24 +49,18 @@ service cloud.firestore {
       allow read, update, delete: if yonetici();
     }
 
-    // Sohbetler: herkes kendi odasını görür, yönetici hepsini görür
+    // Sohbet odası: tek oda, geçmiş her cihazda aynı
     match /sohbetler/{sohbetId} {
-      allow create: if request.auth != null
-                    && request.resource.data.sahip == request.auth.uid;
-      allow read, update: if yonetici()
-                          || (request.auth != null && resource.data.sahip == request.auth.uid);
+      allow read, create, update: if request.auth != null;
       allow delete: if yonetici();
 
       match /mesajlar/{mesajId} {
-        function sahibi() {
-          return request.auth != null
-                 && get(/databases/$(database)/documents/sohbetler/$(sohbetId)).data.sahip == request.auth.uid;
-        }
-        allow read: if yonetici() || sahibi();
-        allow create: if (yonetici() || sahibi())
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
                       && request.resource.data.metin is string
+                      && request.resource.data.metin.size() > 0
                       && request.resource.data.metin.size() < 1000;
-        allow update, delete: if false;
+        allow update, delete: if yonetici();
       }
     }
   }

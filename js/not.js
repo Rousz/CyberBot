@@ -13,8 +13,12 @@ const DOGRU_CEVAP_BASLANGIC = "et";
 // BURAYA DOĞRU CEVAP VERİLİNCE ÇIKACAK BÜYÜK MESAJI YAZ
 const BUYUK_MESAJ = "Aferim kiz soru basitti ama tek sen dogru cevap verirdin, gel yazisak.";
 
-const SAKLAMA_ANAHTARI = "zara_sohbet_kimlik";
-// Not: kilit bilerek hatırlanmıyor — soru her sayfa yenilemesinde tekrar sorulur.
+// Tek bir Zara, tek bir sohbet odası: geçmiş her cihazda aynı yerde durur.
+// BURAYA ODA ADINI DEĞİŞTİREBİLİRSİN (Firestore kurallarıyla uyumlu olmalı)
+const SOHBET_ODASI = "zara";
+
+// Eski sürümlerden kalan tarayıcı kayıtları (açılışta temizlenir)
+const ESKI_KIMLIK_ANAHTARI = "zara_sohbet_kimlik";
 const ESKI_KILIT_ANAHTARI = "zara_kilit_acik";
 
 /* --- Kısa yollar --- */
@@ -94,7 +98,7 @@ async function baslat() {
   const { getAuth, signInAnonymously, onAuthStateChanged } =
     await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js");
   const {
-    getFirestore, collection, addDoc, doc, getDoc, setDoc,
+    getFirestore, collection, addDoc, doc, setDoc,
     query, orderBy, onSnapshot, serverTimestamp
   } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
 
@@ -124,8 +128,9 @@ async function baslat() {
   function araYuzuKur() {
     gizle(hazirlaniyorNot);
     goster(secimAlani);
-    // Eski sürümden kalan kilit varsa temizle: soru her açılışta sorulmalı
+    // Eski sürümlerden kalan kayıtlar artık kullanılmıyor
     localStorage.removeItem(ESKI_KILIT_ANAHTARI);
+    localStorage.removeItem(ESKI_KIMLIK_ANAHTARI);
   }
 
   /* --- Zara kapısı --- */
@@ -164,26 +169,12 @@ async function baslat() {
   }
 
   async function sohbetOdasiHazirla() {
-    let id = localStorage.getItem(SAKLAMA_ANAHTARI);
-    if (id) {
-      try {
-        const belge = await getDoc(doc(vt, "sohbetler", id));
-        if (belge.exists()) return id;
-      } catch (hata) {
-        // Kayıtlı kimliğe erişilemiyor (silinmiş ya da izin yok): yenisini kur
-      }
-      localStorage.removeItem(SAKLAMA_ANAHTARI);
-    }
-    const yeni = doc(collection(vt, "sohbetler"));
-    await setDoc(yeni, {
-      sahip: kullaniciId,
+    // Oda yoksa kurulur, varsa içeriği korunur (merge)
+    await setDoc(doc(vt, "sohbetler", SOHBET_ODASI), {
       baslik: "Zara",
-      olusturma: serverTimestamp(),
-      sonTarih: serverTimestamp(),
-      sonMesaj: "(sohbet açıldı)"
-    });
-    localStorage.setItem(SAKLAMA_ANAHTARI, yeni.id);
-    return yeni.id;
+      sonGorulme: serverTimestamp()
+    }, { merge: true });
+    return SOHBET_ODASI;
   }
 
   /* --- Sohbet --- */
@@ -250,14 +241,12 @@ async function baslat() {
         if (!metin) return;
         sohbetGirdi.value = "";
         if (window.SesEfekt) { window.SesEfekt.mesaj(); }
-        const odaId = localStorage.getItem(SAKLAMA_ANAHTARI);
-        await addDoc(collection(vt, "sohbetler", odaId, "mesajlar"), {
+        await addDoc(collection(vt, "sohbetler", SOHBET_ODASI, "mesajlar"), {
           kim: "zara",
           metin: metin,
           tarih: serverTimestamp()
         });
-        await setDoc(doc(vt, "sohbetler", odaId), {
-          sahip: kullaniciId,
+        await setDoc(doc(vt, "sohbetler", SOHBET_ODASI), {
           sonMesaj: metin.slice(0, 80),
           sonTarih: serverTimestamp(),
           sonYazan: "zara",
