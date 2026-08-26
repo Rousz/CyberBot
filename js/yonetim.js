@@ -11,7 +11,7 @@ import {
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import {
-  getFirestore, collection, doc, addDoc, setDoc, updateDoc,
+  getFirestore, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   query, orderBy, onSnapshot, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
@@ -200,6 +200,16 @@ function calistir() {
     sec("#sohbetPencere").hidden = false;
     sec("#sohbetBaslik").textContent = baslik;
 
+    const odaSil = sec("#odaSil");
+    if (odaSil) {
+      odaSil.onclick = function () {
+        if (!window.confirm("Bu sohbet odası listeden silinsin mi?")) { return; }
+        deleteDoc(doc(vt, "sohbetler", id));
+        sec("#sohbetPencere").hidden = true;
+        acikSohbetId = null;
+      };
+    }
+
     if (mesajDinleyici) mesajDinleyici();
 
     const sorgu = query(collection(vt, "sohbetler", id, "mesajlar"), orderBy("tarih", "asc"));
@@ -210,7 +220,23 @@ function calistir() {
         const veri = belge.data();
         const balon = document.createElement("div");
         balon.className = "balon " + (veri.kim === "yapimci" ? "balon--yapimci" : "balon--zara");
-        balon.textContent = veri.metin;
+
+        const yazi = document.createElement("span");
+        yazi.textContent = veri.metin;
+        balon.appendChild(yazi);
+
+        const sil = document.createElement("button");
+        sil.type = "button";
+        sil.className = "balon__sil";
+        sil.title = "Bu mesajı sil";
+        sil.setAttribute("aria-label", "Bu mesajı sil");
+        sil.textContent = "×";
+        sil.addEventListener("click", function () {
+          if (!window.confirm("Bu mesaj silinsin mi?")) { return; }
+          deleteDoc(doc(vt, "sohbetler", id, "mesajlar", belge.id));
+        });
+        balon.appendChild(sil);
+
         kutu.appendChild(balon);
       });
       kutu.scrollTop = kutu.scrollHeight;

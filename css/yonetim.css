@@ -192,3 +192,43 @@ h1 { font-size: 1.3rem; margin: 0; color: var(--murekkep); }
 @media (min-width: 52rem) {
   .sohbet-duzen { grid-template-columns: 16rem 1fr; align-items: start; }
 }
+
+/* --- Silme düğmeleri --- */
+.sohbet-ust { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+
+.oda-sil {
+  font-family: inherit;
+  font-size: 0.8rem;
+  background: none;
+  border: 0;
+  color: var(--soluk);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.oda-sil:hover { color: var(--pembe-koyu); }
+
+.balon { position: relative; }
+.balon__sil {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+  border-radius: 50%;
+  border: 1px solid var(--cizgi);
+  background: #fff;
+  color: var(--soluk);
+  font-size: 0.85rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+.balon:hover .balon__sil,
+.balon__sil:focus-visible { opacity: 1; }
+.balon__sil:hover { color: #b4404f; }
+
+/* Dokunmatik cihazlarda üzerine gelme yok, hafifçe görünsün */
+@media (hover: none) {
+  .balon__sil { opacity: 0.5; }
+}
