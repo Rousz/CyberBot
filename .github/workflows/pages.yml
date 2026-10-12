@@ -33,8 +33,7 @@ jobs:
           cp index.html yonetim.html _site/
           cp -r css js assets _site/
           touch _site/.nojekyll
-          # Alan adı yeniden çalışmaya başlayınca aşağıdaki satırı aç:
-          # cp CNAME _site/
+          cp CNAME _site/
           ls -R _site | head -30
 
       - uses: actions/upload-pages-artifact@v3
