@@ -1,5 +1,7 @@
-# VM'de birim testleri icin. Surumler Freqtrade 2026.9 Docker imajindakilerle ayni.
-ccxt==4.5.84
+# VM'de birim testleri icin. Surumler CyberBot Docker imajindakilerle ayni
+# (docker/Dockerfile: Freqtrade 2026.9 + ccxt 4.5.88).
+freqtrade==2026.9
+ccxt==4.5.88
 websockets==17.1
 requests==2.34.2
 pytest>=8

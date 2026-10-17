@@ -1,30 +1,76 @@
 # CyberBot - Docker Compose
 #
-# Freqtrade surumu sabit: 2026.9 (kendiliginden guncellenmez).
+# Imaj: docker/Dockerfile (Freqtrade 2026.9 + ccxt 4.5.88 + WEEX sinifi), surumler sabit.
 # Gizli bilgiler (Telegram, WEEX API) sadece PC'deki .env dosyasindan okunur.
+# Veritabanlari "cyberbot_data" Docker volume'unda (/data) durur; Windows klasoru uzerinden
+# SQLite kilitlenme sorunlari yasanmasin diye. Repo /repo olarak baglanir.
 # Bu dosya Turkiye'de bir VPS'e de aynen tasinabilir.
 
 name: cyberbot
 
+x-cyberbot: &cyberbot
+  image: cyberbot-freqtrade:2026.9-weex
+  pull_policy: build
+  build:
+    context: .
+    dockerfile: docker/Dockerfile
+  working_dir: /repo
+  volumes:
+    - ./:/repo
+    - cyberbot_data:/data
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-telegram-env: &telegram-env
+  TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+  TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+
 services:
+  # Demo test (dry-run). API anahtari almaz; cyberbot.launch --dry-run'i zorunlu ekler.
+  freqtrade:
+    <<: *cyberbot
+    restart: unless-stopped
+    stop_grace_period: 60s
+    entrypoint: ["python", "-m", "cyberbot.launch"]
+    command:
+      - trade
+      - --dry-run
+      - --config
+      - /repo/user_data/config.json
+      - --userdir
+      - /repo/user_data
+      - --strategy
+      - CyberScalp
+      - --db-url
+      - sqlite:////data/tradesv3.dryrun.sqlite
+      - --logfile
+      - /repo/user_data/logs/freqtrade.log
+    environment:
+      <<: *telegram-env
+
+  # Turev verisi kaydedici + izleme (bot calismiyor / WEEX'e ulasilamiyor uyarilari).
+  recorder:
+    <<: *cyberbot
+    restart: unless-stopped
+    stop_grace_period: 30s
+    entrypoint: ["python", "-m", "cyberbot.recorder"]
+    environment:
+      <<: *telegram-env
+
   # Tek seferlik isler (baglanti testi, raporlar). .bat dosyalari bunu cagirir:
-  #   docker compose run --rm tools cyberbot.connection_test
+  #   docker compose run --rm --build tools cyberbot.connection_test
   tools:
-    image: freqtradeorg/freqtrade:2026.9
+    <<: *cyberbot
     profiles: ["tools"]
     entrypoint: ["python", "-m"]
-    working_dir: /repo
-    volumes:
-      - ./:/repo
     environment:
-      PYTHONPATH: /repo
-      PYTHONUNBUFFERED: "1"
-      PYTHONIOENCODING: utf-8
-      TZ: UTC
-      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
-      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      <<: *telegram-env
       WEEX_API_KEY: ${WEEX_API_KEY:-}
       WEEX_API_SECRET: ${WEEX_API_SECRET:-}
       WEEX_API_PASSPHRASE: ${WEEX_API_PASSPHRASE:-}
 
-  # Faz 1'de eklenecek: freqtrade (demo test / dry-run) servisi.
+volumes:
+  cyberbot_data:

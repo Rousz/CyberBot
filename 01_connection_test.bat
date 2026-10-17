@@ -14,10 +14,10 @@ set "MARK=reports\logs\connection_test_last.txt"
 if exist "%MARK%" del /q "%MARK%"
 
 echo.
-echo Ilk calistirmada Freqtrade 2026.9 imaji indirilir: yaklasik 300 MB, birkac dakika surebilir.
+echo Ilk calistirmada CyberBot imaji hazirlanir: Freqtrade 2026.9 indirilir, yaklasik 300 MB, birkac dakika surebilir.
 echo Test 1-2 dakika surer. Pencereyi kapatma.
 echo.
-docker compose run --rm tools cyberbot.connection_test
+docker compose run --rm --build tools cyberbot.connection_test
 set "RC=%ERRORLEVEL%"
 if not exist "%MARK%" goto :docker_failed
 echo.

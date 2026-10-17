@@ -1,0 +1,3 @@
+# Docker build baglamina sadece WEEX borsa sinifi girer. .env, veri ve raporlar asla girmez.
+*
+!freqtrade_ext/weex.py

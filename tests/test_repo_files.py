@@ -55,8 +55,24 @@ def test_network_is_blocked_in_tests(monkeypatch):
         requests.get("https://api-contract.weex.com/capi/v3/market/time", timeout=2)
 
 
-def test_compose_pins_freqtrade_version_and_reads_secrets_from_env():
-    text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
-    assert "image: freqtradeorg/freqtrade:2026.9" in text
-    assert "TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}" in text
+def test_image_pins_freqtrade_and_ccxt_and_registers_weex():
+    text = (ROOT / "docker" / "Dockerfile").read_text(encoding="utf-8")
+    assert "FROM freqtradeorg/freqtrade:2026.9" in text
+    assert '"ccxt==4.5.88"' in text
+    assert "from freqtrade.exchange.weex import Weex" in text
     assert "latest" not in text
+
+
+def test_docker_build_context_contains_only_weex_module():
+    lines = [ln.strip() for ln in (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+             if ln.strip() and not ln.startswith("#")]
+    assert lines == ["*", "!freqtrade_ext/weex.py"]
+
+
+def test_compose_reads_secrets_from_env_and_keeps_keys_out_of_freqtrade():
+    text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}" in text
+    freqtrade_block = text.split("  freqtrade:", 1)[1].split("\n  recorder:", 1)[0]
+    assert "WEEX_API" not in freqtrade_block and "--dry-run" in freqtrade_block
+    assert "stop_grace_period: 60s" in freqtrade_block
+    assert "cyberbot_data:/data" in text
