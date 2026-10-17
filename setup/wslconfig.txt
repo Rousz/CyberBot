@@ -1,0 +1,12 @@
+# CyberBot - WSL2 / Docker Desktop kaynak siniri
+# setup_wslconfig.bat bu dosyayi C:\Users\<kullanici>\.wslconfig olarak kopyalar.
+# Degisiklik "wsl --shutdown" sonrasi gecerli olur.
+
+[wsl2]
+# Docker'in kullanabilecegi en fazla RAM (16 GB'in 6 GB'i).
+# Ileride backtest yetersiz kalirsa 8GB yapabilirsin.
+memory=6GB
+# Islemci: Ryzen 5 7500F 6 cekirdek / 12 is parcacigi; 4'u Docker'a yeter.
+processors=4
+# RAM dolarsa kullanilacak disk alani
+swap=4GB

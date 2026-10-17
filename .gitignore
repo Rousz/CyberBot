@@ -8,3 +8,39 @@ dist-ssr
 .vscode/*
 !.vscode/extensions.json
 *.tsbuildinfo
+
+# --- CyberBot -------------------------------------------------------------
+# Repoya sadece kod ve kucuk metin raporlari girer.
+# .env, API anahtarlari, veri dosyalari, veritabanlari ve loglar ASLA girmez.
+!.env.example
+*.env
+.wslconfig
+*.key
+*.pem
+*.p12
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Freqtrade: veri, sonuc, log, veritabani
+user_data/data/
+user_data/logs/
+user_data/backtest_results/
+user_data/hyperopt_results/
+user_data/plot/
+user_data/notebooks/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.feather
+*.parquet
+*.zip
+
+# Loglar (ozetler reports/*.txt olarak repoya girer, ayrintili loglar girmez)
+*.log
+reports/logs/

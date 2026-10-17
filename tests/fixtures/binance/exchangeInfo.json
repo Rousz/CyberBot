@@ -1,0 +1,17 @@
+{
+ "timezone": "UTC",
+ "serverTime": 1775597594265,
+ "rateLimits": [
+  {"rateLimitType": "REQUEST_WEIGHT", "interval": "MINUTE", "intervalNum": 1, "limit": 2400},
+  {"rateLimitType": "ORDERS", "interval": "MINUTE", "intervalNum": 1, "limit": 1200},
+  {"rateLimitType": "ORDERS", "interval": "SECOND", "intervalNum": 10, "limit": 300}
+ ],
+ "symbols": [
+  {"symbol": "BTCUSDT", "pair": "BTCUSDT", "contractType": "PERPETUAL", "status": "TRADING", "baseAsset": "BTC", "quoteAsset": "USDT", "marginAsset": "USDT", "onboardDate": 1569398400000},
+  {"symbol": "ETHUSDT", "pair": "ETHUSDT", "contractType": "PERPETUAL", "status": "TRADING", "baseAsset": "ETH", "quoteAsset": "USDT", "marginAsset": "USDT", "onboardDate": 1569398400000},
+  {"symbol": "SOLUSDT", "pair": "SOLUSDT", "contractType": "PERPETUAL", "status": "TRADING", "baseAsset": "SOL", "quoteAsset": "USDT", "marginAsset": "USDT", "onboardDate": 1600000000000},
+  {"symbol": "BTCUSDT_261225", "pair": "BTCUSDT", "contractType": "CURRENT_QUARTER", "status": "TRADING", "baseAsset": "BTC", "quoteAsset": "USDT", "marginAsset": "USDT", "onboardDate": 1758000000000},
+  {"symbol": "OLDUSDT", "pair": "OLDUSDT", "contractType": "PERPETUAL", "status": "SETTLING", "baseAsset": "OLD", "quoteAsset": "USDT", "marginAsset": "USDT", "onboardDate": 1600000000000},
+  {"symbol": "ETHUSDC", "pair": "ETHUSDC", "contractType": "PERPETUAL", "status": "TRADING", "baseAsset": "ETH", "quoteAsset": "USDC", "marginAsset": "USDC", "onboardDate": 1700000000000}
+ ]
+}

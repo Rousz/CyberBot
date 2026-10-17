@@ -1,0 +1,13 @@
+[
+ {
+  "symbol": "BTCUSDT",
+  "markPrice": "74011.0",
+  "indexPrice": "74020.3",
+  "forecastFundingRate": "0.00005618",
+  "lastFundingRate": "0.00001031",
+  "interestRate": "0.001",
+  "nextFundingTime": 1775606400000,
+  "time": 1775597594265,
+  "collectCycle": 480
+ }
+]

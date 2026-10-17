@@ -1,0 +1,17 @@
+{
+ "openInterestHist": [
+  {"symbol": "BTCUSDT", "sumOpenInterest": "81234.123", "sumOpenInterestValue": "6012345678.9", "CMCCirculatingSupply": "19950000", "timestamp": 1775597400000}
+ ],
+ "globalLongShortAccountRatio": [
+  {"symbol": "BTCUSDT", "longShortRatio": "1.8105", "longAccount": "0.6442", "shortAccount": "0.3558", "timestamp": 1775597400000}
+ ],
+ "topLongShortAccountRatio": [
+  {"symbol": "BTCUSDT", "longShortRatio": "1.4342", "longAccount": "0.5891", "shortAccount": "0.4109", "timestamp": 1775597400000}
+ ],
+ "topLongShortPositionRatio": [
+  {"symbol": "BTCUSDT", "longShortRatio": "1.1205", "longAccount": "0.5284", "shortAccount": "0.4716", "timestamp": 1775597400000}
+ ],
+ "takerlongshortRatio": [
+  {"buySellRatio": "1.0412", "buyVol": "1234.567", "sellVol": "1185.701", "timestamp": 1775597400000}
+ ]
+}

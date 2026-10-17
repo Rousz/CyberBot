@@ -1,0 +1,30 @@
+# CyberBot - Docker Compose
+#
+# Freqtrade surumu sabit: 2026.9 (kendiliginden guncellenmez).
+# Gizli bilgiler (Telegram, WEEX API) sadece PC'deki .env dosyasindan okunur.
+# Bu dosya Turkiye'de bir VPS'e de aynen tasinabilir.
+
+name: cyberbot
+
+services:
+  # Tek seferlik isler (baglanti testi, raporlar). .bat dosyalari bunu cagirir:
+  #   docker compose run --rm tools cyberbot.connection_test
+  tools:
+    image: freqtradeorg/freqtrade:2026.9
+    profiles: ["tools"]
+    entrypoint: ["python", "-m"]
+    working_dir: /repo
+    volumes:
+      - ./:/repo
+    environment:
+      PYTHONPATH: /repo
+      PYTHONUNBUFFERED: "1"
+      PYTHONIOENCODING: utf-8
+      TZ: UTC
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      WEEX_API_KEY: ${WEEX_API_KEY:-}
+      WEEX_API_SECRET: ${WEEX_API_SECRET:-}
+      WEEX_API_PASSPHRASE: ${WEEX_API_PASSPHRASE:-}
+
+  # Faz 1'de eklenecek: freqtrade (demo test / dry-run) servisi.

@@ -1,0 +1,62 @@
+[
+ {
+  "symbol": "ETHUSDT",
+  "priceChange": "-75.49",
+  "priceChangePercent": "-0.034992",
+  "lastPrice": "2081.80",
+  "openPrice": "2157.29",
+  "highPrice": "2167.51",
+  "lowPrice": "2059.17",
+  "volume": "623160.426",
+  "quoteVolume": "1310647345.19346",
+  "openTime": 1775493000000,
+  "closeTime": 1775579400000,
+  "markPrice": "2081.8",
+  "indexPrice": "2082.75"
+ },
+ {
+  "symbol": "BTCUSDT",
+  "priceChange": "-1210.5",
+  "priceChangePercent": "-0.016100",
+  "lastPrice": "74010.5",
+  "openPrice": "75221.0",
+  "highPrice": "75480.0",
+  "lowPrice": "73650.2",
+  "volume": "41250.1234",
+  "quoteVolume": "3052880011.22",
+  "openTime": 1775493000000,
+  "closeTime": 1775579400000,
+  "markPrice": "74011.0",
+  "indexPrice": "74020.3"
+ },
+ {
+  "symbol": "SOLUSDT",
+  "priceChange": "-3.1",
+  "priceChangePercent": "-0.020000",
+  "lastPrice": "151.920",
+  "openPrice": "155.020",
+  "highPrice": "156.800",
+  "lowPrice": "150.110",
+  "volume": "2400000.1",
+  "quoteVolume": "364800000.5",
+  "openTime": 1775493000000,
+  "closeTime": 1775579400000,
+  "markPrice": "151.93",
+  "indexPrice": "151.95"
+ },
+ {
+  "symbol": "WEEXONLYUSDT",
+  "priceChange": "0.0001",
+  "priceChangePercent": "0.010000",
+  "lastPrice": "0.01010",
+  "openPrice": "0.01000",
+  "highPrice": "0.01100",
+  "lowPrice": "0.00950",
+  "volume": "120000000",
+  "quoteVolume": "1212000.0",
+  "openTime": 1775493000000,
+  "closeTime": 1775579400000,
+  "markPrice": "0.0101",
+  "indexPrice": "0.0101"
+ }
+]

@@ -1,0 +1,15 @@
+{
+ "ok": true,
+ "result": [
+  {
+   "update_id": 100000001,
+   "message": {
+    "message_id": 1,
+    "from": {"id": 555000111, "is_bot": false, "first_name": "Deneme"},
+    "chat": {"id": 555000111, "first_name": "Deneme", "type": "private"},
+    "date": 1775597594,
+    "text": "merhaba"
+   }
+  }
+ ]
+}

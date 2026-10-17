@@ -1,0 +1,5 @@
+# VM'de birim testleri icin. Surumler Freqtrade 2026.9 Docker imajindakilerle ayni.
+ccxt==4.5.84
+websockets==17.1
+requests==2.34.2
+pytest>=8
