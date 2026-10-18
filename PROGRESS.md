@@ -5,10 +5,16 @@ Son güncelleme: 2026-10-18 UTC. Yeni oturum buradan devam eder. Teknik sözleş
 ## Şu an: Faz 1 – İlk çalışan demo bot (dry-run)
 
 Durum: **VM tarafı bitti (298 internetsiz test geçiyor), PC'de test bekleniyor.**
-Faz 0 PC sonuçları (`reports/`) henüz gelmedi.
+
+### PC sonuçları
+- 2026-10-18 12:11 UTC `00_quick_check.bat` (kullanıcı sohbete yapıştırdı): **BAŞARILI**. Türkiye'den WEEX web,
+  WEEX vadeli REST (0.72 sn) ve spot REST, Binance vadeli REST (451 yok), data.binance.vision, Telegram API ve
+  Docker Hub erişilebilir. → Erişim engeli riski yok; Docker kurulumuna geçilebilir.
+- Henüz yok: `01_connection_test` (Docker gerekli), `02_weex_probe`, demo.
 
 ### PC'de sırada (kullanıcı)
-1. (Faz 0, yapılmadıysa) `docs/SETUP_WINDOWS.md` → `00_quick_check.bat` → `01_connection_test.bat`.
+1. `docs/SETUP_WINDOWS.md` Adım 4-8: SVM/BIOS, WSL2, Docker Desktop, `setup_wslconfig.bat`, `setup_env.bat`
+   (Telegram token) → `01_connection_test.bat` (chat id ekranda çıkar → .env → tekrar çalıştır).
 2. `02_weex_probe.bat` → `reports/weex_probe_*.txt` + `reports/samples/probe_*.json` push.
 3. `10_demo_start.bat` (demo başlar, arka planda haftalarca çalışır) → haftada bir `12_demo_report.bat` → push.
 4. Her güncellemeden sonra: GitHub Desktop Pull → `10_demo_start.bat` (kodu yeniden yükler, botu yeniden başlatır).
