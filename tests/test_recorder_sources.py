@@ -65,8 +65,18 @@ def test_weex_oi_and_funding_parse():
     rows = parse_funding([{"symbol": "BTCUSDT", "fundingRate": "0.0001", "fundingTime": str(T0), "markPrice": "9"},
                           {"symbol": "BTCUSDT", "fundingRate": "0.0002", "fundingTime": str(T0 + DAY)}], "BTCUSDT",
                          T0 + 1000)
+    # gelecekteki satır atlandı; avail = ödeme + 2 dk gecikme + 60 sn (ödeme anı = mum kapanışı değil)
     assert rows == [{"symbol": "BTCUSDT", "funding_ms": T0, "rate": 0.0001, "mark": 9.0, "recv_ms": T0 + 1000,
-                     "avail_ms": T0}]  # gelecekteki satır atlandı; avail = ödeme anı
+                     "avail_ms": T0 + 180_000}]
+
+
+def test_funding_avail_never_before_recorder_had_it():
+    from cyberbot.recorder.weex_poll import funding_avail_ms
+
+    assert funding_avail_ms(T0, T0 + 121_000, 120_000) == T0 + 180_000     # zamanında çekildi
+    assert funding_avail_ms(T0, T0 + 600_000, 120_000) == T0 + 600_000     # geç çekildi (hata/tekrar): recv
+    assert funding_avail_ms(T0, T0 + 5 * DAY, 120_000) == T0 + 180_000     # sonradan toplu geçmiş: deterministik
+    assert all(funding_avail_ms(T0, T0 + d, 120_000) > T0 for d in (0, 1, 120_000))
 
 
 def test_weex_error_payload_detection():
@@ -208,18 +218,26 @@ def test_network_error_and_4xx_never_raise(tmp_path):
     assert len(rest.log_sink) == 2
 
 
+def seed_history(rest, db, symbol, start_ms, end_ms):
+    """symbol için [start_ms, end_ms] arası tüm uçlarda veri yazar (önceki çalışma)."""
+    for e in br.ENDPOINTS:
+        raw = FakeHttp(FakeClock(end_ms + BAR))._futures(e, {"symbol": symbol, "startTime": start_ms,
+                                                              "endTime": end_ms, "limit": 100_000})
+        rest._store(e, symbol, raw, live=False)
+
+
 def test_backfill_queue_runs_by_priority_and_marks_gap(tmp_path):
     now = T0 + 12_345
     clock = FakeClock(now)
     http = FakeHttp(clock)
     rest, db = make_rest(tmp_path, clock, http)
-    for e in br.ENDPOINTS:
-        rest.last_ts[("BTCUSDT", e)] = now - 3 * DAY
+    seed_history(rest, db, "BTCUSDT", now - 29 * DAY, now - 3 * DAY)  # 3 gündür kapalıydı
     rest.record_startup_gaps(["BTCUSDT"], now)
     assert db.gaps("bn_futures")[0][-1] == "open"
     rest.set_priority(["BTCUSDT", "ETHUSDT"])
     n = rest.plan(["ETHUSDT", "BTCUSDT"], now)
-    assert n == 5 * 1 + 5 * 16
+    assert n == 5 * 2 + 5 * 16   # BTC: pencere başındaki ~0.5 gün + son 3 gün; ETH: 29.5 gün
+    assert {(g[1], g[-1]) for g in db.gaps("bn_futures")} == {("BTCUSDT", "open"), ("ETHUSDT", "open")}
 
     async def main():
         done = []
@@ -228,11 +246,42 @@ def test_backfill_queue_runs_by_priority_and_marks_gap(tmp_path):
         return done
 
     order = asyncio.run(main())
-    assert order[:5] == ["BTCUSDT"] * 5 and set(order[5:]) == {"ETHUSDT"}
+    assert order[:10] == ["BTCUSDT"] * 10 and set(order[10:]) == {"ETHUSDT"}
     assert all("endTime" in p for _, p in http.calls)
     assert not rest.pending
-    # canlı da yetişince boşluk 'backfilled'
-    asyncio.run(rest.live_cycle(br.bar_open(now, BAR), ["BTCUSDT"], now))
+    # canlı da yetişince boşluklar 'backfilled' (yeni sembolün 29.5 günlük geçmişi dahil)
+    asyncio.run(rest.live_cycle(br.bar_open(now, BAR), ["BTCUSDT", "ETHUSDT"], now))
+    assert {g[-1] for g in db.gaps("bn_futures")} == {"backfilled"}
+    assert rest.plan(["ETHUSDT", "BTCUSDT"], now) == 0   # her şey ya var ya Binance'te yok: tekrar sorulmaz
+
+
+def test_interrupted_backfill_is_replanned_after_restart(tmp_path):
+    """İlk açılışta doldurma bitmeden kapatıldı (11_demo_stop): yeniden açılışta eksik geçmiş
+    son ts'den değil DB'deki eksikten planlanır; boşluk açık kalır."""
+    now = T0 + 12_345
+    clock = FakeClock(now)
+    http = FakeHttp(clock)
+    rest, db = make_rest(tmp_path, clock, http)
+    assert rest.plan(["BTCUSDT"], now) == 5 * 16
+    asyncio.run(rest.live_cycle(br.bar_open(now, BAR), ["BTCUSDT"], now))  # canlı: son 500 periyot
+    for _ in range(5):                                                       # sadece en eski dilim
+        asyncio.run(rest.backfill_once())
+    assert db.gaps("bn_futures")[0][-1] == "open"
+    clock.set(now + 20 * MIN)                                                # kapat, 20 dk sonra aç
+    rest2, _ = make_rest(tmp_path, clock, http)
+    assert "BTCUSDT" in rest2.open_gaps
+    rest2.record_startup_gaps(["BTCUSDT"], clock.now_ms())                   # 20 dk kesinti
+    assert rest2.plan(["BTCUSDT"], clock.now_ms()) == 5 * 15                 # kalan 15 dilim yeniden
+    assert len(db.gaps("bn_futures")) == 1                                   # aynı boşluk satırı genişler
+
+    async def drain():
+        while await rest2.backfill_once():
+            pass
+
+    asyncio.run(drain())
+    asyncio.run(rest2.live_cycle(br.bar_open(clock.now_ms(), BAR), ["BTCUSDT"], clock.now_ms()))
+    lo, hi = db.query("SELECT MIN(ts_ms), MAX(ts_ms) FROM bn_futures_data WHERE symbol='BTCUSDT'")[0]
+    assert hi - lo >= 29 * DAY
     assert db.gaps("bn_futures")[0][-1] == "backfilled"
 
 
@@ -247,19 +296,47 @@ def test_old_downtime_split_into_unrecoverable_and_open(tmp_path):
     assert states == ["unrecoverable", "open"]
 
 
-def test_backfill_retries_transient_then_gives_up(tmp_path):
+def test_backfill_retries_transient_with_delay_then_gives_up_until_next_plan(tmp_path):
     clock = FakeClock(T0)
     http = FakeHttp(clock)
-    rest, db = make_rest(tmp_path, clock, http, backfill_attempts=2, rate_limit_pause_s=1)
+    rest, db = make_rest(tmp_path, clock, http, backfill_attempts=3, rate_limit_pause_s=1)
     rest.enqueue([br.BackfillTask(0, 0, "BTCUSDT", "openInterestHist", T0 - DAY, T0 - DAY + 499 * BAR)])
-    http.fail["/futures/data/"] = 503
+    http.fail["/futures/data/"] = ConnectionError("ağ yok")
 
-    async def main():
-        while await rest.backfill_once():
-            pass
+    async def run_for(ms):
+        end = clock.now_ms() + ms
+        while clock.now_ms() < end:
+            await rest.backfill_once()
+            clock.set(clock.now_ms() + 1000)
 
-    asyncio.run(main())
-    assert len(http.calls) == 2 and not rest.pending and "BTCUSDT" in rest.failed
+    asyncio.run(rest.backfill_once())
+    assert len(http.calls) == 1 and rest.delayed and not rest.queue
+    asyncio.run(rest.backfill_once())
+    assert len(http.calls) == 1                     # hemen tekrar yok (eskiden 1.5 sn'de 3 deneme)
+    asyncio.run(run_for(29_000))
+    assert len(http.calls) == 1
+    asyncio.run(run_for(2_000))                     # 30 sn sonra 2. deneme
+    assert len(http.calls) == 2
+    asyncio.run(run_for(61_000))                    # 60 sn sonra 3. deneme: bırakıldı
+    assert len(http.calls) == 3 and not rest.pending and "BTCUSDT" in rest.failed
+    http.fail.clear()
+    rest.plan(["BTCUSDT"], clock.now_ms())          # saatlik plan: bırakılan anahtar yeniden denenir
+    assert "BTCUSDT" not in rest.failed and rest.pending
+
+
+def test_backfill_task_exception_does_not_leak_pending(tmp_path):
+    clock = FakeClock(T0)
+    http = FakeHttp(clock)
+    rest, db = make_rest(tmp_path, clock, http)
+    rest.enqueue([br.BackfillTask(0, 0, "BTCUSDT", "openInterestHist", T0 - DAY, T0 - DAY + 499 * BAR)])
+
+    def broken(*a, **k):
+        raise RuntimeError("disk dolu")
+
+    rest.db.bn_mark_checked = broken
+    with pytest.raises(RuntimeError):
+        asyncio.run(rest.backfill_once())
+    assert not rest.pending and "BTCUSDT" in rest.failed  # sonraki planda tekrar planlanabilir
 
 
 def test_live_requests_keep_priority_over_backfill(tmp_path):

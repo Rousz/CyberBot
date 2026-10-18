@@ -5,10 +5,17 @@ Kaydedici sürecinde çalışır (docker-compose "recorder" servisi).
     (120 sn) boyunca hiç başarılı istek yoksa tek uyarı + 'weex_unreachable'; düzelince
     mesaj + 'weex_recovered'. Sorun sürerse realert_minutes'ta bir hatırlatma.
 (b) Freqtrade: uptime.sqlite'taki 'freqtrade' bileşeninin son kalp atışı
-    bot_heartbeat_stale_s'den (300 sn) eskiyse 'Bot çalışmıyor' + 'bot_stale'; geri gelince 'bot_recovered'.
+    bot_heartbeat_stale_s'den (300 sn) eskiyse uyarı + 'bot_stale'; geri gelince 'bot_recovered'.
+    Freqtrade kalp atışını sadece ana döngüsü ilerlerken yazar: bayat kalp atışı = süreç yok
+    VEYA ayakta ama durdurulmuş/takılmış (ör. Telegram /stop). En yeni oturum 'clean' kapandıysa
+    (11_demo_stop, bilinçli durdurma) uyarı yok. Başka kapanış türü (crash:..., stalled) uyarıdır;
+    'reload' sonrası yeni oturum için bayatlık süresi kadar beklenir.
 (c) Binance: REST veya likidasyon WS'i binance_alert_after_s boyunca yoksa ya da 418 IP
     yasağı varsa uyarı + 'binance_unreachable'; düzelince 'binance_recovered'.
+(d) Kaydedici işleri: bir iş (WS, doldurma, zamanlanmış işler) üst üste task_alert_failures
+    kez hata verirse uyarı + 'task_failing'; düzelince 'task_recovered'.
 Kaydedici açıldıktan sonraki grace_s içinde uyarı gönderilmez. İzleme asla istisna fırlatmaz.
+Telegram'a gidemeyen mesaj kaybolmaz: sonraki kontrollerde gidene kadar tekrar denenir.
 Mesajlarda UTC + İstanbul saati yazar.
 """
 
@@ -86,6 +93,15 @@ class SourceHealth:
 
 
 @dataclass
+class JobHealth:
+    """Kaydedici işinin (WS, doldurma, zamanlanmış işler) üst üste hata sayısı."""
+    consecutive_fail: int = 0
+    first_fail_ms: int | None = None
+    last_err: str = ""
+    last_ok_ms: int | None = None
+
+
+@dataclass
 class Status:
     """Kaydedicinin kaynak durumları (izleme okur)."""
     weex: SourceHealth = field(default_factory=lambda: SourceHealth("weex"))
@@ -93,10 +109,22 @@ class Status:
     binance_ban_until_ms: int = 0
     ws_enabled: bool = False
     ws_down_since_ms: int | None = None  # None = bağlı (veya hiç denenmedi)
+    jobs: dict[str, JobHealth] = field(default_factory=dict)
 
     def attach_db(self, db: Any) -> None:
         self.weex.db = db
         self.binance_rest.db = db
+
+    def job_ok(self, name: str, now_ms: int) -> None:
+        job = self.jobs.setdefault(name, JobHealth())
+        job.consecutive_fail, job.first_fail_ms, job.last_ok_ms = 0, None, now_ms
+
+    def job_fail(self, name: str, now_ms: int, err: str) -> int:
+        job = self.jobs.setdefault(name, JobHealth())
+        job.consecutive_fail += 1
+        job.first_fail_ms = job.first_fail_ms or now_ms
+        job.last_err = err[:200]
+        return job.consecutive_fail
 
 
 class Condition:
@@ -109,6 +137,8 @@ class Condition:
         self.active = False
         self.since_ms: int | None = None
         self.last_alert_ms: int | None = None
+        self.pending: str | None = None      # gönderilemeyen mesaj: "down" | "up" | "remind"
+        self.up_since_ms: int | None = None  # bekleyen "up" mesajının kesinti başlangıcı
 
 
 class Monitor:
@@ -129,21 +159,30 @@ class Monitor:
         self.weex = Condition("weex", "weex_unreachable", "weex_recovered")
         self.bot = Condition("bot", "bot_stale", "bot_recovered")
         self.binance = Condition("binance", "binance_unreachable", "binance_recovered")
+        self.jobs = Condition("jobs", "task_failing", "task_recovered")
         self.sent: list[str] = []
 
     # --- yardımcılar --------------------------------------------------------
 
-    async def _notify(self, text: str) -> None:
+    async def _notify(self, text: str) -> bool:
+        """True: mesaj gitti (veya gönderici yok, sadece log). False: gönderilemedi, sonra tekrar."""
         self.sent.append(text)
         try:
             if self._send is not None:
                 result = self._send(text)
                 if asyncio.iscoroutine(result):
-                    await result
+                    result = await result
             elif self.notifier is not None:
-                await asyncio.to_thread(self.notifier.send, text)
+                result = await asyncio.to_thread(self.notifier.send, text)
+            else:
+                return True
         except Exception as exc:
             logger.warning("izleme mesajı gönderilemedi: %s", type(exc).__name__)
+            return False
+        if result is False:
+            logger.warning("izleme mesajı gönderilemedi (Telegram); sonraki kontrolde tekrar denenecek")
+            return False
+        return True
 
     def _event(self, kind: str, detail: str, now_ms: int) -> None:
         try:
@@ -156,19 +195,33 @@ class Monitor:
                       remind_text: Callable[[], str]) -> None:
         realert_ms = int(float(self.cfg.get("realert_minutes") or 0) * 60_000)
         if bad and not cond.active:
-            cond.active, cond.since_ms, cond.last_alert_ms = True, since_ms or now_ms, now_ms
+            cond.active, cond.since_ms, cond.last_alert_ms = True, since_ms or now_ms, None
             logger.warning("İZLEME: %s sorunu: %s", cond.name, detail)
             self._event(cond.down_event, detail, now_ms)
-            await self._notify(down_text())
-        elif bad and cond.active and realert_ms and now_ms - (cond.last_alert_ms or now_ms) >= realert_ms:
-            cond.last_alert_ms = now_ms
-            await self._notify(remind_text())
+            cond.pending = "down"
+        elif bad and cond.active and cond.pending is None and realert_ms \
+                and now_ms - (cond.last_alert_ms or now_ms) >= realert_ms:
+            cond.pending = "remind"
         elif not bad and cond.active:
             since = cond.since_ms or now_ms
             cond.active, cond.since_ms = False, None
             logger.info("İZLEME: %s düzeldi", cond.name)
             self._event(cond.up_event, f"kesinti {fmt_duration(now_ms - since)}", now_ms)
-            await self._notify(up_text(since))
+            cond.pending, cond.up_since_ms = "up", since  # gitmemiş uyarının yerine düzelme mesajı
+        if cond.pending is None:
+            return
+        kind = cond.pending
+        text = down_text() if kind == "down" else remind_text() if kind == "remind" else up_text(cond.up_since_ms)
+        if await self._notify(text):
+            cond.pending = None
+            if kind != "up":
+                cond.last_alert_ms = now_ms
+
+    def _quiet_reset(self, cond: Condition, why: str) -> None:
+        """Bilinçli durdurma: uyarı durumu mesajsız kapanır."""
+        if cond.active or cond.pending:
+            logger.info("İZLEME: %s uyarısı kapatıldı (%s)", cond.name, why)
+        cond.active, cond.since_ms, cond.pending = False, None, None
 
     # --- kontroller ---------------------------------------------------------
 
@@ -178,7 +231,7 @@ class Monitor:
             return
         if now_ms - self.started_ms < float(self.cfg["grace_s"]) * 1000:
             return
-        for fn in (self._check_weex, self._check_bot, self._check_binance):
+        for fn in (self._check_weex, self._check_bot, self._check_binance, self._check_jobs):
             try:
                 await fn(now_ms)
             except Exception:
@@ -206,19 +259,31 @@ class Monitor:
         stale_ms = float(self.cfg["bot_heartbeat_stale_s"]) * 1000
         last = sessions[-1] if sessions else None
         last_hb = max((s.last_heartbeat_ms for s in sessions), default=None)
-        running = last is not None and last.stopped_ms is None and last_hb is not None and now_ms - last_hb <= stale_ms
+        if last is not None and last.stopped_ms is not None and last.stop_kind == "clean":
+            # 11_demo_stop / bilinçli durdurma: uyarı yok (bot yeniden açılınca yeni oturum gelir)
+            self._quiet_reset(self.bot, "freqtrade düzgün durduruldu")
+            return
         if last is None:
-            reason = "freqtrade hiç kalp atışı yazmadı"
+            running, reason = False, "freqtrade hiç kalp atışı yazmadı"
+        elif last.stopped_ms is not None and last.stop_kind == "reload":
+            # yeniden yükleme: yeni oturum birazdan açılır
+            running = now_ms - last.stopped_ms <= stale_ms
+            reason = f"freqtrade yeniden yüklendi ({fmt_ms(last.stopped_ms)}) ama yeni oturum açmadı"
         elif last.stopped_ms is not None:
-            reason = f"freqtrade kapatıldı ({fmt_ms(last.stopped_ms)})"
+            running = False
+            kind = last.stop_kind or "bilinmiyor"
+            reason = f"freqtrade beklenmedik şekilde kapandı ({fmt_ms(last.stopped_ms)}, {kind})"
         else:
+            running = last_hb is not None and now_ms - last_hb <= stale_ms
             reason = f"freqtrade {fmt_duration(now_ms - (last_hb or now_ms))}dır kalp atışı yazmıyor"
         await self._update(
             self.bot, not running, now_ms, last_hb, reason,
-            lambda: (f"UYARI: Bot çalışmıyor: {reason}. Son kalp atışı: {fmt_ms(last_hb)}. Şu an: {fmt_ms(now_ms)}. "
-                     f"PC'de Docker Desktop'ı ve 'freqtrade' container'ını kontrol edin."),
+            lambda: (f"UYARI: Bot çalışmıyor veya durdurulmuş/takılmış: {reason}. Son kalp atışı: {fmt_ms(last_hb)}. "
+                     f"Şu an: {fmt_ms(now_ms)}. Telegram'dan /stop verdiysen /start ile devam ettir; değilse PC'de "
+                     f"Docker Desktop'ı ve 'freqtrade' container'ını kontrol edin."),
             lambda since: f"DÜZELDİ: Bot yeniden çalışıyor. Şu an: {fmt_ms(now_ms)}.",
-            lambda: f"HATIRLATMA: Bot hâlâ çalışmıyor ({reason}). Şu an: {fmt_ms(now_ms)}.",
+            lambda: (f"HATIRLATMA: Bot hâlâ çalışmıyor veya durdurulmuş/takılmış ({reason}). "
+                     f"Telegram'dan /stop verdiysen /start ile devam ettir. Şu an: {fmt_ms(now_ms)}."),
         )
 
     async def _check_binance(self, now_ms: int) -> None:
@@ -243,4 +308,21 @@ class Monitor:
             lambda since: (f"DÜZELDİ: Binance verisi yeniden alınıyor. Kesinti: {fmt_duration(now_ms - since)} "
                            f"({fmt_ms(since)} - {fmt_ms(now_ms)})."),
             lambda: f"HATIRLATMA: Binance verisi hâlâ alınamıyor: {text}. Şu an: {fmt_ms(now_ms)}.",
+        )
+
+    async def _check_jobs(self, now_ms: int) -> None:
+        limit = int(self.cfg.get("task_alert_failures") or 0)
+        if not limit:
+            return
+        failing = sorted((name, job) for name, job in self.status.jobs.items() if job.consecutive_fail >= limit)
+        text = "; ".join(f"'{name}' {job.consecutive_fail} kez ({job.last_err})" for name, job in failing)
+        since = min((job.first_fail_ms or now_ms for _, job in failing), default=now_ms)
+        await self._update(
+            self.jobs, bool(failing), now_ms, since, text,
+            lambda: (f"UYARI: Kaydedicide iş üst üste hata veriyor: {text}. Kaydedici bu işi kendisi yeniden "
+                     f"deniyor, diğer kayıtlar devam ediyor. Sorun sürerse 'recorder' container'ını yeniden başlatın "
+                     f"ve user_data/logs/recorder.log dosyasına bakın (disk dolu olabilir). Şu an: {fmt_ms(now_ms)}."),
+            lambda since: (f"DÜZELDİ: Kaydedici işleri yeniden normal çalışıyor. Sorun süresi: "
+                           f"{fmt_duration(now_ms - since)} ({fmt_ms(since)} - {fmt_ms(now_ms)})."),
+            lambda: f"HATIRLATMA: Kaydedicide iş hâlâ hata veriyor: {text}. Şu an: {fmt_ms(now_ms)}.",
         )

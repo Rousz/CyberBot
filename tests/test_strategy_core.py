@@ -204,15 +204,31 @@ def test_plan_from_fill_keeps_stop_price_and_recomputes_target():
 
 
 def test_exit_reason():
-    kw = dict(crossed=False, held_minutes=10, max_hold_minutes=180)
-    assert core.exit_reason(is_short=False, rate=103.0, tp=103.0, **kw) == "take_profit"
-    assert core.exit_reason(is_short=False, rate=102.9, tp=103.0, **kw) is None
-    assert core.exit_reason(is_short=True, rate=96.0, tp=96.5, **kw) == "take_profit"
-    assert core.exit_reason(is_short=True, rate=97.0, tp=96.5, **kw) is None
-    assert core.exit_reason(is_short=False, rate=100, tp=103, crossed=False, held_minutes=180,
-                            max_hold_minutes=180) == "time_stop"
-    assert core.exit_reason(is_short=False, rate=100, tp=103, crossed=True, held_minutes=0,
-                            max_hold_minutes=180) == "fill_beyond_stop"
+    # hedef custom_exit'te değil (custom_roi), sadece süre dolumu ve stopu geçmiş dolum
+    assert core.exit_reason(crossed=False, held_minutes=10, max_hold_minutes=180) is None
+    assert core.exit_reason(crossed=False, held_minutes=180, max_hold_minutes=180) == "time_stop"
+    assert core.exit_reason(crossed=True, held_minutes=0, max_hold_minutes=180) == "fill_beyond_stop"
+    assert core.exit_reason(crossed=False, held_minutes=10_000, max_hold_minutes=0) is None  # 0 = süre yok
+
+
+def _trade(open_rate: float, is_short: bool):
+    from freqtrade.enums import TradingMode
+    from freqtrade.persistence import LocalTrade
+
+    return LocalTrade(pair="ETH/USDT:USDT", open_rate=open_rate, amount=3.0, stake_amount=open_rate,
+                      fee_open=0.0008, fee_close=0.0008, leverage=3.0, is_short=is_short,
+                      trading_mode=TradingMode.FUTURES, exchange="weex", open_date=pd.Timestamp("2026-01-10", tz="UTC"))
+
+
+@pytest.mark.parametrize("is_short,tp", [(False, 103.0), (True, 97.0)])
+def test_target_roi_threshold_maps_back_to_tp_price(is_short, tp):
+    trade = _trade(100.0, is_short)
+    roi = core.target_roi(trade, tp)
+    assert roi == pytest.approx(trade.calc_profit_ratio(tp))
+    assert roi > 0
+    # Freqtrade backtest çıkış fiyatını bu eşikten geri hesaplar: tam hedef fiyat
+    assert trade.calc_close_rate_for_roi(roi) == pytest.approx(tp, rel=1e-9)
+    assert core.target_roi(trade, None) is None and core.target_roi(trade, float("nan")) is None
 
 
 def test_risk_stake():
@@ -229,6 +245,18 @@ def test_risk_stake():
                            max_stake=900) == 0
     assert core.risk_stake(equity=1000, risk_per_trade=0.01, rate=100, sl=99, leverage=3, min_stake=50,
                            max_stake=40) == 0  # imkânsız
+
+
+def test_risk_stake_includes_round_trip_fee_so_loss_at_stop_is_risk_per_trade():
+    # %0.4 stop + %0.16 gidiş-dönüş ücret: ücretsiz hesapta stopta kayıp ~%1.4 olurdu
+    kw = dict(equity=1000, risk_per_trade=0.01, rate=100, sl=99.6, leverage=3, min_stake=1, max_stake=5000)
+    gross = core.risk_stake(**kw)
+    stake = core.risk_stake(**kw, round_trip_fee=0.0016)
+    assert gross * 3 * (0.004 + 0.0016) == pytest.approx(14.0)  # eski: hedef 10 USDT yerine 14
+    assert stake * 3 * (0.004 + 0.0016) == pytest.approx(10.0)  # kayıp = özsermaye x risk_per_trade
+    assert P["round_trip_fee"] >= 0.0016  # varsayılan en az WEEX taker x 2
+    bad = defaults.load({"cyberbot": {"strategy": {"round_trip_fee": 0.05}}})
+    assert any("round_trip_fee" in e for e in defaults.validate(bad))
 
 
 def test_depth_ok_counts_only_band_on_taken_side():

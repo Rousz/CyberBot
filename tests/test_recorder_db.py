@@ -40,9 +40,9 @@ def contract_keys() -> dict[str, list[str]]:
     keys = {}
     for line in text.splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) == 3 and cells[0].startswith("`"):
-            first = re.findall(r"`([^`]*)`", cells[1])[0]
-            keys[cells[0].strip("`")] = [p.strip(" ()") for p in first.split(",")]
+        spans = re.findall(r"`([^`]*)`", cells[1]) if len(cells) == 3 else []
+        if len(cells) == 3 and cells[0].startswith("`") and spans:  # anahtarsız tablo (fetch_log): '—'
+            keys[cells[0].strip("`")] = [p.strip(" ()") for p in spans[0].split(",")]
     return keys
 
 
@@ -59,7 +59,7 @@ def db(tmp_path):
 
 def test_schema_matches_architecture_contract(db):
     contract = contract_tables()
-    assert len(contract) == 10
+    assert len(contract) >= 10
     assert {"symbol", "period", "ts_ms"} <= contract["bn_futures_data"]
     assert {"source", "symbol", "start_ms", "state"} <= contract["gaps"]
     for table, cols in contract.items():
@@ -153,14 +153,65 @@ def test_aggregate_liq_1m_with_coverage(db):
     now = T0 + 2 * MIN + 1000
     db.aggregate_liq_1m(T0, now, now)
     rows = {(s, b): rest for s, b, *rest in db.query("SELECT * FROM bn_liq_1m ORDER BY symbol, bucket_ms")}
-    assert rows[("BTCUSDT", T0)] == [1500.0, 300.0, 2, 1, 1000.0, 0.5, T0 + MIN]  # SELL = long likide
+    # avail_ms = ilk yazıldığı an (kova sonundan önce değil): kaydedici bu satırı ancak now'da yazdı
+    assert rows[("BTCUSDT", T0)] == [1500.0, 300.0, 2, 1, 1000.0, 0.5, now]  # SELL = long likide
     assert rows[("ETHUSDT", T0 + MIN)][:4] == [0.0, 50.0, 0, 1]
     assert rows[("ETHUSDT", T0 + MIN)][5] == 1.0  # oturum hâlâ açık: dakika tam kapsandı
     assert dict(db.query("SELECT bucket_ms, coverage FROM bn_liq_coverage_1m")) == {T0: 0.5, T0 + MIN: 1.0}
-    db.aggregate_liq_1m(T0, now, now)  # idempotent
-    assert db.query("SELECT COUNT(*) FROM bn_liq_1m")[0][0] == 2
+    assert {a for (a,) in db.query("SELECT avail_ms FROM bn_liq_coverage_1m")} == {now}
+    db.aggregate_liq_1m(T0, now + MIN, now + MIN)  # idempotent: değişmeyen satırın avail_ms'i korunur
+    assert db.query("SELECT COUNT(*) FROM bn_liq_1m")[0][0] == 3 - 1
+    assert db.query("SELECT avail_ms FROM bn_liq_1m WHERE symbol='BTCUSDT'")[0][0] == now
+    # geç gelen likidasyon değeri değiştirir: avail_ms yeniden yazma anına ilerler
+    db.insert_liquidations([liq(t=T0 + 58_000, side="SELL", notional=10.0, price=97.0)])
+    later = now + 2 * MIN
+    db.aggregate_liq_1m(T0, later, later)
+    assert db.query("SELECT long_liq_usd, avail_ms FROM bn_liq_1m WHERE symbol='BTCUSDT' AND bucket_ms=?",
+                    (T0,))[0] == (1510.0, later)
     db.ws_close(cid, T0 + 90_000, "test")
     assert db.ws_open_sessions() == 0 and db.ws_last_close_ms() == T0 + 90_000
+
+
+def test_retroactive_close_lowers_existing_coverage(db):
+    """Sessiz bağlantı geriye dönük kapatılınca daha önce 1.0 yazılmış dakika 'veri yok' olur."""
+    cid = db.ws_open("wss://x", T0)
+    now = T0 + 3 * MIN + 5_000
+    db.aggregate_liq_1m(T0, now, now)
+    assert dict(db.query("SELECT bucket_ms, coverage FROM bn_liq_coverage_1m")) == {T0: 1.0, T0 + MIN: 1.0,
+                                                                                  T0 + 2 * MIN: 1.0}
+    db.ws_close(cid, T0 + MIN, "silent")
+    db.aggregate_liq_1m(T0, now + MIN, now + MIN)
+    rows = {b: (c, a) for b, c, a in db.query("SELECT bucket_ms, coverage, avail_ms FROM bn_liq_coverage_1m")}
+    assert rows[T0] == (1.0, now)                       # değişmedi: ilk avail korunur
+    assert rows[T0 + MIN] == (0.0, now + MIN) and rows[T0 + 2 * MIN] == (0.0, now + MIN)
+
+
+def test_bn_missing_finds_holes_and_skips_checked(db):
+    def put(symbol, times):
+        db.upsert_bn_futures("openInterestHist", symbol, "5m",
+                             [{"symbol": symbol, "sumOpenInterest": "1", "sumOpenInterestValue": "2", "timestamp": t}
+                              for t in times], now_ms=T0 + 100 * BAR, safety_ms=60_000, live=False)
+
+    put("BTCUSDT", [T0 + i * BAR for i in (2, 3, 4, 7, 8)])
+    start, end = T0 + 1, T0 + 10 * BAR  # başlangıç ızgaraya yukarı yuvarlanır
+    missing = db.bn_missing("openInterestHist", "5m", ["BTCUSDT", "ETHUSDT"], start, end)
+    assert missing["BTCUSDT"] == [(T0 + BAR, T0 + 2 * BAR), (T0 + 5 * BAR, T0 + 7 * BAR), (T0 + 9 * BAR, end)]
+    assert missing["ETHUSDT"] == [(T0 + BAR, end)]       # hiç verisi yok: tüm pencere
+    assert db.bn_missing("takerlongshortRatio", "5m", ["BTCUSDT"], start, end) == {"BTCUSDT": [(T0 + BAR, end)]}
+    db.bn_mark_checked("BTCUSDT", "openInterestHist", T0 + 5 * BAR, T0 + 7 * BAR, T0)  # Binance'te yok
+    assert db.bn_missing("openInterestHist", "5m", ["BTCUSDT"], start, end)["BTCUSDT"] == [
+        (T0 + BAR, T0 + 2 * BAR), (T0 + 9 * BAR, end)]
+    assert db.prune_backfill_checked(T0 + 8 * BAR) == 1
+
+
+def test_open_gap_extends_existing_open_row(db):
+    db.open_gap("bn_futures", "BTCUSDT", T0 + BAR, T0 + 3 * BAR, "history", T0)
+    db.open_gap("bn_futures", "BTCUSDT", T0 + 2 * BAR, T0 + 5 * BAR, "missing", T0)  # saatlik plan: aynı satır
+    assert db.gaps("bn_futures") == [("bn_futures", "BTCUSDT", T0 + BAR, T0 + 5 * BAR, "history", "open")]
+    assert db.open_gap_symbols("bn_futures") == {"BTCUSDT"}
+    db.set_gap_state("bn_futures", "BTCUSDT", "open", "backfilled")
+    db.open_gap("bn_futures", "BTCUSDT", T0 + 6 * BAR, T0 + 7 * BAR, "missing", T0)  # yeni eksik: yeni satır
+    assert [g[-1] for g in db.gaps("bn_futures")] == ["backfilled", "open"]
 
 
 def test_dangling_ws_sessions_closed_conservatively(db):
@@ -169,6 +220,9 @@ def test_dangling_ws_sessions_closed_conservatively(db):
     assert db.ws_close_dangling(T0 + 50) == 2
     assert db.query("SELECT close_ms, reason FROM ws_sessions ORDER BY conn_id") == [(T0 + 50, "crash"),
                                                                                     (T0 + 100, "crash")]
+    db.ws_open("wss://x", T0 + 200)
+    assert db.ws_close_dangling(T0 + 300, reason="error") == 1
+    assert db.query("SELECT reason FROM ws_sessions WHERE conn_id=3") == [("error",)]
 
 
 def test_gaps_unique_and_state_change(db):
@@ -202,6 +256,9 @@ def test_weex_upserts_and_reader_can_open_read_only(db, tmp_path):
     db.upsert_weex_funding([{"symbol": "BTCUSDT", "funding_ms": T0, "rate": 0.1, "mark": 1.0, "recv_ms": T0 + 9,
                              "avail_ms": T0}])
     assert db.weex_last_funding() == {"BTCUSDT": T0}
+    db.upsert_weex_funding([{"symbol": "BTCUSDT", "funding_ms": T0, "rate": 0.1, "mark": 1.0, "recv_ms": T0 + 99,
+                             "avail_ms": T0 + 99}])  # tekrar çekilse de ilk avail_ms/recv_ms korunur
+    assert db.query("SELECT recv_ms, avail_ms FROM weex_funding_hist") == [(T0 + 9, T0)]
     ro = sqlite3.connect(f"file:{tmp_path / 'derivs.sqlite'}?mode=ro", uri=True)
     assert ro.execute("SELECT mark FROM weex_premium").fetchone() == (1.0,)
     ro.close()

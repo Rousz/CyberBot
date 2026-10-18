@@ -25,6 +25,11 @@ RECORDER_DEFAULTS: dict = {
     "fetch_log_days": 7,
     "log_max_mb": 10,
     "log_backups": 5,
+    # Arka plan işi (WS, doldurma) hata verip biterse yeniden başlatılır: 5, 10, 20 ... en fazla 300 sn
+    # bekleyerek. task_stable_s kadar hatasız çalışınca sağlıklı sayılır.
+    "task_restart_base_s": 5,
+    "task_restart_max_s": 300,
+    "task_stable_s": 120,
     "symbols": {
         "track_top_n": 60,
         "keep_hours": 48,            # listeden düşen sembol 48 saat daha izlenir (histerezis)
@@ -59,6 +64,8 @@ RECORDER_DEFAULTS: dict = {
         "ws_backoff_max_s": 60,
         "ws_open_timeout_s": 15,
         "ws_gap_min_s": 5,           # bundan kısa kopukluk boşluk sayılmaz
+    "ws_ack_timeout_s": 10,      # SUBSCRIBE onayı bu sürede gelmezse bağlantı başarısız
+    "ws_silence_s": 600,         # bu kadar hiç forceOrder gelmezse yeniden bağlan (0 = kapalı)
     },
     "weex": {
         "enabled": True,
@@ -82,4 +89,5 @@ MONITOR_DEFAULTS: dict = {
     "realert_minutes": 180,          # sorun sürerse hatırlatma (0 = kapalı)
     "bot_heartbeat_stale_s": 300,
     "binance_alert_after_s": 600,
+    "task_alert_failures": 3,        # bir kaydedici işi üst üste bu kadar hata verirse uyarı (0 = kapalı)
 }

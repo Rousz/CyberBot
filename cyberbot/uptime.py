@@ -24,6 +24,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL_S = 60
+# Normal kapanış türleri; diğerleri ("stalled", "crash:<İstisna>") ve kapanış kaydı olmayanlar anormaldir.
+NORMAL_STOP_KINDS = ("clean", "reload")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions(

@@ -11,20 +11,18 @@ if not exist "reports\logs" mkdir "reports\logs"
 call "setup\check_docker.bat"
 if errorlevel 1 goto :docker_missing
 
-set "SINCE="
-for /f "usebackq delims=" %%t in (`powershell -NoProfile -Command "[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()"`) do set "SINCE=%%t"
-if not defined SINCE set "SINCE=0"
-
 set "MARK=reports\logs\demo_stop_last.txt"
 if exist "%MARK%" del /q "%MARK%"
 
 echo.
 echo Bot ve kaydedici durduruluyor. Pencereyi kapatma, en fazla 1-2 dakika...
 echo.
+rem Durdurmadan once oturumlar kaydedilir (saat karsilastirmasi yok). Basarisiz olsa da durdurulur.
+docker compose run --rm tools cyberbot.demo_status mark stop
 docker compose stop freqtrade recorder
 if errorlevel 1 goto :compose_failed
 
-docker compose run --rm tools cyberbot.demo_status stop --since %SINCE%
+docker compose run --rm tools cyberbot.demo_status stop
 set "RC=%ERRORLEVEL%"
 if not exist "%MARK%" goto :status_failed
 

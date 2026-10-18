@@ -64,7 +64,8 @@ REQUEST_PAUSE = 0.3  # art arda istekler arası bekleme (sn); testlerde 0
 LIQ_WAIT_S = 60.0  # likidasyon akışında ilk mesaj için bekleme
 FD_POLL_S = 10.0  # /futures/data yeni satır yoklama aralığı
 FD_POLL_MAX_S = 330.0  # en fazla bir 5m dönem + pay
-BOUNDARY_GUARD_MS = 15_000  # mum sınırına bu kadar yakınsa biraz bekle (oluşan mum testi için)
+BOUNDARY_GUARD_MS = 15_000  # mum açılışına bu kadar yakınsa biraz bekle (oluşan mum testi için)
+BOUNDARY_END_GUARD_MS = 5_000  # mum kapanışına bu kadar yakınsa da bekle (istek sınırı aşmasın)
 RECORDER_SAFETY_S = 60  # recorder varsayılanı: avail_ms = ts + dönem + 60 sn
 DEPTH_LIMITS = (None, 15, 50, 200)
 MEME_BASES = ("PEPE", "SHIB", "BONK", "FLOKI", "SATS", "RATS", "CAT", "LUNC", "XEC", "BTT", "CHEEMS", "MOG")
@@ -134,14 +135,15 @@ class Continuity:
 
 def continuity(times: list[int], tf_ms: int, since_ms: int, chunk: int = HISTORY_LIMIT) -> Continuity:
     """Mum açılış zamanları dizisinde boşluklar. Parça sınırları since'ten (yukarı yuvarlanmış)
-    itibaren her chunk mumda bir: Weex alt sınıfı historyKlines'ı tam bu sınırlarla böler."""
+    itibaren her chunk mumda bir: Weex alt sınıfı historyKlines'ı tam bu sınırlarla böler.
+    Bir parçanın ilk ya da son mumu eksikse "parça sınırında" sayılır."""
     times = sorted(set(int(t) for t in times))
     if not times:
         return Continuity(0, None, None, [], 0, 0)
     anchor = ceil_to(since_ms, tf_ms)
     have = set(times)
     missing = [t for t in range(times[0], times[-1] + 1, tf_ms) if t not in have]
-    border = sum(1 for t in missing if (t - anchor) % (chunk * tf_ms) == 0)
+    border = sum(1 for t in missing if ((t - anchor) // tf_ms) % chunk in (0, chunk - 1))
     head = max(0, (times[0] - anchor) // tf_ms)
     return Continuity(len(times), times[0], times[-1], missing, border, head)
 
@@ -343,8 +345,10 @@ class Probe:
             ex.close()
 
     def _ft_frame_times(self, ex, pair: str, tf: str, candle_type, since_ms: int) -> list[int]:
-        res = ex.refresh_latest_ohlcv([(pair, tf, candle_type)], since_ms=since_ms, cache=False)
-        df = res.get((pair, tf, candle_type))
+        """Freqtrade'in indirme yolu (get_historic_ohlcv: Weex parçalaması dahil) ile mum zamanları.
+        refresh_latest_ohlcv(cache=False) KULLANILMAZ: o eksik mumları sahte 0 hacimli satırlarla
+        doldurur (fill_missing) ve süreklilik ölçümü hiçbir boşluğu göremez."""
+        df = ex.get_historic_ohlcv(pair, tf, since_ms, candle_type)
         if df is None or df.empty:
             return []
         self.ctx.setdefault("ft_frames", {})[(tf, str(candle_type))] = df
@@ -357,7 +361,7 @@ class Probe:
             def fn():
                 tf_ms = TF_MS[tf]
                 now = self.clock.now_ms()
-                since = now - days * DAY_MS
+                since = floor_to(now - days * DAY_MS, tf_ms)  # canlıdaki gibi mum ızgarasında
                 times = self._ft_frame_times(ex, BTC, tf, candle_type, since)
                 c = continuity(times, tf_ms, since)
                 if not c.n:
@@ -380,7 +384,7 @@ class Probe:
         self.check(g, "mark_1h_60gun", candles("1h", CandleType.MARK, 60, "Karar – Freqtrade 1h mark mumları"))
 
         def funding():
-            since = self.clock.now_ms() - 7 * DAY_MS
+            since = floor_to(self.clock.now_ms() - 7 * DAY_MS, HOUR_MS)
             times = self._ft_frame_times(ex, BTC, "1h", CandleType.FUNDING_RATE, since)
             if not times:
                 return Outcome(WARN, "funding kaydı gelmedi – dry-run funding ücreti hesaplanamaz")
@@ -539,15 +543,19 @@ class Probe:
         return text
 
     def _wait_away_from_boundary(self, tf_ms: int) -> None:
+        """Mum sınırının iki yanından uzak dur: açılıştan sonraki ilk 15 sn ve kapanıştan önceki
+        son 5 sn (istek + bekleme sınırı aşarsa oluşan mum kapanmış sanılır)."""
         into = self.weex_now() % tf_ms
         if into < BOUNDARY_GUARD_MS:
             self.clock.sleep((BOUNDARY_GUARD_MS - into) / 1000 + 5)
+        elif tf_ms - into < BOUNDARY_END_GUARD_MS:
+            self.clock.sleep((tf_ms - into + BOUNDARY_GUARD_MS) / 1000 + 5)
 
     def weex_klines(self):
         tf = TF_MS["5m"]
         self._wait_away_from_boundary(tf)
+        now = self.weex_now()  # istekten ÖNCE: cevap/bekleme sonrası saat bir sonraki muma geçmiş olabilir
         data, err = self.weex("klines", {"symbol": "BTCUSDT", "interval": "5m", "limit": 1000})
-        now = self.weex_now()
         if err:
             return Outcome(WARN, f"limit=1000 reddedildi: {err}")
         rows = as_list(data)
@@ -556,7 +564,7 @@ class Probe:
             return Outcome(WARN, "mum gelmedi")
         self.sample("weex_klines_5m", rows[-3:])
         current_open = floor_to(now, tf)
-        forming = times[-1] == current_open
+        forming = times[-1] >= current_open
         ascending = times == sorted(times)
         convention = close_time_convention(rows, tf)
         old, err_old = self.weex("klines", {"symbol": "BTCUSDT", "interval": "5m", "limit": 10,
@@ -574,13 +582,14 @@ class Probe:
             self.finding("Karar – son mum (klines)", "son satır OLUŞAN mum → Freqtrade onu atar "
                          "(ohlcv_partial_candle=True) → mevcut ayar doğru")
         else:
-            self.finding("Karar – son mum (klines)", "son satır KAPANMIŞ mum → Freqtrade kapanmış bir mumu atar ve "
-                         "sinyaller bir mum gecikir → freqtrade_ext/weex.py'de ohlcv_partial_candle=False gerekli")
+            self.finding("Karar – son mum (klines)", "son satır KAPANMIŞ mum (WEEX oluşan mumu vermiyor) → "
+                         "Freqtrade 2026.9 yeni kapanan mumu 15 sn bekleme payından sonra tutar, sinyal gecikmez "
+                         "→ ohlcv_partial_candle=True kalır, değişiklik gerekmez")
         self.finding("WEEX klines", f"limit=1000 → {len(times)} mum, {'artan' if ascending else 'KARIŞIK'} sıra, "
                      f"{convention}; {ignores}")
         text = (f"{len(times)} mum, son satır {'oluşan' if forming else 'kapanmış'} mum "
                 f"({fmt_both(from_ms(times[-1]))}), {convention}; {ignores}")
-        if not forming or len(times) < 1000 or not ascending:
+        if len(times) < 1000 or not ascending:
             return Outcome(WARN, text)
         return text
 
@@ -667,8 +676,9 @@ class Probe:
 
     def weex_mark_klines(self):
         parts, warn = [], False
-        now = self.weex_now()
         for path in ("markPriceKlines", "indexPriceKlines"):
+            self._wait_away_from_boundary(HOUR_MS)
+            now = self.weex_now()  # istekten önce (bkz. weex_klines)
             data, err = self.weex(path, {"symbol": "BTCUSDT", "interval": "1h", "limit": 1000})
             if err:
                 parts.append(f"{path} limit=1000 reddedildi ({err})")
@@ -676,7 +686,7 @@ class Probe:
                 continue
             rows = as_list(data)
             times = kline_times(rows)
-            forming = bool(times) and times[-1] == floor_to(now, HOUR_MS)
+            forming = bool(times) and times[-1] >= floor_to(now, HOUR_MS)
             parts.append(f"{path} 1h limit=1000 → {len(times)} satır, son {'oluşan' if forming else 'kapanmış'} mum")
             if path == "markPriceKlines":
                 self.sample("weex_markPriceKlines_1h", rows[-3:])

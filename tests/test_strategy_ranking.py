@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -119,9 +120,87 @@ def test_confirm_uses_signal_candle_in_live_time_too(ranked):
 def test_binance_bonus_changes_priority(ranked):
     write_perps(paths.binance_perps_json(), int(datetime.now(timezone.utc).timestamp() * 1000))
     ranked._binance = ranked._make_binance()  # önbellek yeniden kurulur
+    ranked.dp.runmode = RunMode.DRY_RUN
     ranked.config["max_open_trades"] = 1
     assert confirm(ranked, "SOL/USDT:USDT")  # 78 + 5 > 80
     assert not confirm(ranked, "ETH/USDT:USDT")
+
+
+def test_binance_bonus_not_applied_in_backtest(ranked):
+    # bugünkü liste geçmişe uygulanmaz: aynı backtest dosyanın yaşına/varlığına bağlı değil
+    write_perps(paths.binance_perps_json(), int(datetime.now(timezone.utc).timestamp() * 1000))
+    ranked._binance = ranked._make_binance()
+    ranked.config["max_open_trades"] = 1
+    assert confirm(ranked, "ETH/USDT:USDT") and not confirm(ranked, "SOL/USDT:USDT")
+
+
+# --------------------------------------------------------------------------- girilemeyen pariteler sıralamada yok
+
+
+def test_side_specific_auto_lock_frees_slot_for_next_pair(ranked):
+    ranked.config["max_open_trades"] = 1
+    # ETH'nin işlemi giriş mumunun başında kapandı -> Freqtrade "Auto lock" (yöne özel, mum sonuna kadar)
+    ranked.lock_pair("ETH/USDT:USDT", at(NOW + 302_000), reason="Auto lock", side="long")
+    assert ranked.is_pair_locked("ETH/USDT:USDT", candle_date=at(NOW), side="long")  # Freqtrade ETH'yi engeller
+    assert confirm(ranked, "SOL/USDT:USDT")  # ...o yüzden ETH sıralamada yer tutmaz
+
+
+def test_opposite_side_lock_does_not_remove_candidate(ranked):
+    ranked.config["max_open_trades"] = 1
+    ranked.lock_pair("ETH/USDT:USDT", at(NOW + 302_000), reason="Auto lock", side="short")
+    assert not confirm(ranked, "SOL/USDT:USDT")  # ETH long girebilir, hâlâ önde
+
+
+def exit_fill(strat, pair, when_ms, direction="long"):
+    trade = SimpleNamespace(exit_side="sell" if direction == "long" else "buy",
+                            entry_side="buy" if direction == "long" else "sell", trade_direction=direction)
+    strat.order_filled(pair, trade, SimpleNamespace(ft_order_side=trade.exit_side), at(when_ms))
+
+
+def test_pair_closed_in_this_candle_is_not_a_candidate_in_backtest(ranked):
+    ranked.config["max_open_trades"] = 1
+    exit_fill(ranked, "ETH/USDT:USDT", NOW - 300_000)  # sinyal mumundan önce kapandı: girebilir
+    assert not confirm(ranked, "SOL/USDT:USDT")
+    # backtest: ETH'nin işlemi giriş mumunda kapandı -> Freqtrade ETH'yi bu mum atlar
+    exit_fill(ranked, "ETH/USDT:USDT", NOW + 300_000, direction="short")
+    assert confirm(ranked, "SOL/USDT:USDT")
+
+
+def test_pair_closed_in_this_candle_live_only_same_side_blocks(ranked):
+    ranked.dp.runmode = RunMode.DRY_RUN
+    ranked.config["max_open_trades"] = 1
+    exit_fill(ranked, "ETH/USDT:USDT", NOW + 302_000, direction="short")  # ters yön: Freqtrade izin verir
+    assert not confirm(ranked, "SOL/USDT:USDT", when_ms=NOW + 303_000)
+    exit_fill(ranked, "ETH/USDT:USDT", NOW + 302_000, direction="long")
+    assert confirm(ranked, "SOL/USDT:USDT", when_ms=NOW + 303_000)
+
+
+def test_thin_book_top_pair_does_not_block_liquid_lower_pair(ranked):
+    ranked.dp.runmode = RunMode.DRY_RUN
+    ranked.config["max_open_trades"] = 1
+    books = {"ETH/USDT:USDT": {"bids": [[100.0, 1]], "asks": [[100.1, 1]]},  # ~100 USDT
+             "SOL/USDT:USDT": {"bids": [[100.0, 10_000]], "asks": [[100.1, 10_000]]}}
+    ranked.dp.orderbook = lambda pair, maximum: books[pair]
+    when = NOW + 303_000
+    assert not confirm(ranked, "SOL/USDT:USDT", when_ms=when)  # ETH henüz denenmedi: önde
+    assert not confirm(ranked, "ETH/USDT:USDT", when_ms=when)  # derinlik yetersiz
+    assert confirm(ranked, "SOL/USDT:USDT", when_ms=when + 5_000)  # sonraki döngü: SOL girer
+    # sonraki mumda ETH yeniden aday (kayıt sadece o sinyal mumu için)
+    nxt = NOW + 300_000
+    for p in ("ETH/USDT:USDT", "SOL/USDT:USDT"):
+        ranked._signals[p][nxt] = dict(ranked._signals[p][NOW])
+    assert not confirm(ranked, "SOL/USDT:USDT", when_ms=nxt + 303_000)
+    assert not confirm(ranked, "ETH/USDT:USDT", when_ms=nxt + 303_000)
+    assert set(ranked._rejected) == {nxt}  # eski mum kayıtları silinir
+
+
+def test_zero_stake_top_pair_does_not_block_next_pair(ranked):
+    ranked.config["max_open_trades"] = 1
+    # slot payı (5 USDT) borsa alt sınırının (10 USDT) altında -> Freqtrade ETH'yi açmaz
+    stake = ranked.custom_stake_amount("ETH/USDT:USDT", at(NOW + 300_000), 100.0, 5.0, 10.0, 100.0, 3.0,
+                                       None, "long")
+    assert stake == 0
+    assert confirm(ranked, "SOL/USDT:USDT")
 
 
 def test_depth_check_only_in_dry_run(ranked):

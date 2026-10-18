@@ -17,11 +17,16 @@ STRATEGY_DEFAULTS: dict[str, Any] = {
     "weights": {"trend": 1.0, "indicators": 1.0, "patterns": 1.0, "derivatives": 1.0, "news": 1.0},
     "entry_score_threshold": 70,
     # Zorunlu: planlanan ödül/risk >= min_rr. Hedef = giriş +/- target_rr x risk.
+    # min_rr ve target_rr BRÜT (ücretsiz fiyat mesafesi). Ücretler round_trip_fee ile
+    # pozisyon büyüklüğünde hesaba katılır; net R/R brütten düşüktür (%0.4 stopta ~1.0).
     "min_rr": 1.5,
     "target_rr": 1.8,
     "leverage": 3,
-    # Risk tabanlı pozisyon: teminat = özsermaye x risk_per_trade / (stop mesafesi x kaldıraç)
+    # Risk tabanlı pozisyon: teminat = özsermaye x risk_per_trade / ((stop mesafesi + round_trip_fee) x kaldıraç)
     "risk_per_trade": 0.01,
+    # Gidiş-dönüş maliyet payı (fiyatın oranı): WEEX taker %0.08 x 2 = %0.16 + ~%0.04 kayma.
+    # Böylece stopta kayıp ücretlerle birlikte risk_per_trade'i aşmaz.
+    "round_trip_fee": 0.002,
     # True: teminat, Freqtrade'in slot başına önerdiği payı (bakiye / max_open_trades) aşmaz.
     "cap_stake_to_slot": True,
     "max_hold_minutes": 180,
@@ -90,6 +95,8 @@ def validate(p: dict[str, Any]) -> list[str]:
         errors.append("leverage en az 1 olmalı")
     if not 0 < float(p["risk_per_trade"]) <= 0.05:
         errors.append("risk_per_trade 0 ile 0.05 (%5) arasında olmalı")
+    if not 0 <= float(p["round_trip_fee"]) < 0.02:
+        errors.append("round_trip_fee 0 ile 0.02 (%2) arasında olmalı")
     t = p["trend"]
     if not float(t["adx_strong"]) > float(t["adx_trend"]):
         errors.append("trend: adx_strong adx_trend'den büyük olmalı")

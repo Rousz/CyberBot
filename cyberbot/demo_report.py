@@ -8,9 +8,15 @@ tools container'ında /data volume'u ile çalışır. Okuduğu veritabanları (h
 - çalışma kaydı: paths.uptime_db() (cyberbot.uptime şeması),
 - türev verisi: paths.derivs_db() (varsa; docs/ARCHITECTURE.md tablo adları).
 
-Kural: kesintili dönemleri sonuçlardan ayır. Ömrü bir kesintiyle (bot kapalı ya da WEEX
-verisi bayat, 2 dakikadan uzun) kesişen işlemler ayrı listelenir ve "temiz" istatistiklere
-katılmaz. Veritabanları boş/yoksa açık bir Türkçe mesaj yazılır, rapor yine üretilir.
+Kural: kesintili dönemleri sonuçlardan ayır. Ömrü bir kesintiyle (bot kapalı – planlı
+durdurma dahil – ya da WEEX verisi bayat, 2 dakikadan uzun) kesişen işlemler ayrı listelenir
+ve "temiz" istatistiklere katılmaz. Kesintiler --days penceresinden bağımsız olarak tüm
+geçmişten hesaplanır (pencereden önce başlayan kesinti de sayılır).
+Uptime yüzdesi planlı durdurmalar (temiz kapanış 'clean'/'reload' sonrası boşluk, ör.
+11_demo_stop.bat) hariç tutularak hesaplanır; planlı durdurmalar ayrı gösterilir.
+'clean'/'reload' dışındaki kapanış türleri ('stalled', 'crash:*') ve kapanış kaydı olmayan
+oturumlar "temiz olmayan kapanış" sayılır.
+Veritabanları boş/yoksa açık bir Türkçe mesaj yazılır, rapor yine üretilir.
 
 Çıktı: reports/demo_report_<UTC>.txt (UTC + İstanbul saatleri).
 """
@@ -39,7 +45,7 @@ from cyberbot.demo_status import (
 )
 from cyberbot.report import INFO, WARN, Outcome, describe_error
 from cyberbot.timeutil import fmt_both, from_ms
-from cyberbot.uptime import Event, Session, summarize
+from cyberbot.uptime import NORMAL_STOP_KINDS, Event, Session, summarize
 
 DAY_MS = 86_400_000
 MIN_GAP_MS = 2 * 60_000  # bundan kısa kesintiler (hızlı yeniden başlatma) işlemleri ayırmaz
@@ -51,6 +57,7 @@ DOWN_EVENTS = {  # kesinti başlatan olay -> bitiren olay (docs/ARCHITECTURE.md)
     "weex_unreachable": "weex_recovered",
 }
 STOP_REASONS = ("stop_loss", "trailing_stop_loss")  # raporda birlikte gösterilir
+TARGET_REASONS = ("take_profit", "roi")  # strateji hedefi: custom_exit ya da custom_roi ('roi')
 DERIVS_TABLES = {
     "bn_futures_data": "ts_ms",
     "bn_liquidations": "trade_ms",
@@ -165,28 +172,79 @@ def session_running(s: Session, now_ms: int) -> bool:
     return s.stopped_ms is None and now_ms - s.last_heartbeat_ms <= FRESH_MS
 
 
+def containing_session(ts_ms: int, sessions: list[Session]) -> Session | None:
+    """ts anında çalışan (en son başlamış) oturum."""
+    cands = [s for s in sessions if s.started_ms <= ts_ms]
+    return max(cands, key=lambda s: (s.started_ms, s.id)) if cands else None
+
+
 def event_outages(events: list[Event], sessions: dict[str, list[Session]], start_ms: int,
                   end_ms: int) -> list[tuple[int, int, str]]:
-    """Olaylardan kesinti dönemleri: *_down -> aynı bileşenin *_recovered olayına kadar.
-    Kurtarma olayı yoksa o oturumun sonuna (çökmüşse son kalp atışı) ya da pencere sonuna kadar."""
+    """Olaylardan kesinti dönemleri: *_down -> aynı bileşenin AYNI oturumdaki *_recovered olayına kadar.
+    Sağlık durumu yeniden başlatmada sıfırlanır; bu yüzden oturum kurtarma olayı yazmadan bittiyse
+    kesinti o oturumun sonunda (çökmüşse son kalp atışı + aralık) biter, sonraki oturumun olayları
+    onu kapatmaz. Oturum hâlâ çalışıyorsa pencere sonuna kadar sürer."""
     out = []
-    open_since: dict[tuple[str, str], int] = {}
-    for ev in sorted(events, key=lambda e: e.ts_ms):
+    open_: dict[tuple[str, str], tuple[int, int | None]] = {}  # (bileşen, tür) -> (başlangıç, oturum sonu)
+
+    def session_cap(component: str, ts: int) -> int | None:
+        s = containing_session(ts, sessions.get(component, []))
+        if s is None or session_running(s, end_ms):
+            return None
+        return max(s.end_ms(), ts)
+
+    for ev in sorted(events, key=lambda e: (e.ts_ms, e.id)):
+        for key, (ts, cap) in list(open_.items()):
+            if key[0] == ev.component and cap is not None and cap < ev.ts_ms:
+                out.append((ts, cap, key[1]))  # oturum kurtarma olayı yazmadan bitti
+                del open_[key]
         if ev.kind in DOWN_EVENTS:
-            open_since.setdefault((ev.component, ev.kind), ev.ts_ms)
-        else:
-            for down, up in DOWN_EVENTS.items():
-                if ev.kind == up and (ev.component, down) in open_since:
-                    out.append((open_since.pop((ev.component, down)), ev.ts_ms, down))
-    for (component, kind), ts in open_since.items():
-        end = end_ms
-        for s in sessions.get(component, []):
-            if s.started_ms <= ts and (s.stopped_ms is not None or not session_running(s, end_ms)):
-                if s.end_ms() >= ts:
-                    end = min(end, s.end_ms())
-        out.append((ts, end, kind))
+            key = (ev.component, ev.kind)
+            if key not in open_:
+                open_[key] = (ev.ts_ms, session_cap(ev.component, ev.ts_ms))
+            continue
+        for down, up in DOWN_EVENTS.items():
+            if ev.kind == up and (ev.component, down) in open_:
+                ts, _ = open_.pop((ev.component, down))
+                out.append((ts, ev.ts_ms, down))
+    for (_, kind), (ts, cap) in open_.items():
+        out.append((ts, end_ms if cap is None else min(cap, end_ms), kind))
     return [(max(a, start_ms), min(b, end_ms), k) for a, b, k in out
             if min(b, end_ms) - max(a, start_ms) > MIN_GAP_MS]
+
+
+def preceding_session(ts_ms: int, sessions: list[Session]) -> Session | None:
+    """ts'de başlayan boşluktan hemen önce biten oturum."""
+    cands = [s for s in sessions if s.end_ms() <= ts_ms]
+    return max(cands, key=lambda s: (s.end_ms(), s.id)) if cands else None
+
+
+def is_planned_gap(gap_start_ms: int, sessions: list[Session]) -> bool:
+    """Boşluk temiz kapanışla ('clean'/'reload', ör. 11_demo_stop.bat) başladıysa planlı durdurmadır."""
+    s = preceding_session(gap_start_ms, sessions)
+    return s is not None and s.stopped_ms is not None and s.stop_kind in NORMAL_STOP_KINDS
+
+
+def abnormal_stops(sessions: list[Session], start_ms: int, now_ms: int) -> list[Session]:
+    """Dönem içinde biten ve normal kapanmayan oturumlar: kapanış kaydı yok, 'stalled', 'crash:*'..."""
+    out = []
+    for s in sessions:
+        if session_running(s, now_ms) or not start_ms <= s.end_ms() <= now_ms:
+            continue
+        if s.stopped_ms is None or s.stop_kind not in NORMAL_STOP_KINDS:
+            out.append(s)
+    return out
+
+
+def stop_label(s: Session) -> str:
+    kind = s.stop_kind or ""
+    if s.stopped_ms is None:
+        return "kapanış kaydı yok (elektrik kesintisi, çökme ya da zorla durdurma)"
+    if kind == "stalled":
+        return "ana döngü durdu/takıldı (stalled; ör. hata sonrası STOPPED ya da Telegram /stop)"
+    if kind.startswith("crash:"):
+        return f"Freqtrade hatayla kapandı ({kind.split(':', 1)[1] or '?'})"
+    return f"kapanış türü '{kind or '?'}'"
 
 
 def mark_outages(trades: list[TradeRow], periods: list[tuple[int, int, str]], now_ms: int) -> None:
@@ -253,6 +311,8 @@ def trade_stats(trades: list[TradeRow], wallet: float) -> Stats:
 def reason_label(reason: str | None) -> str:
     if reason in STOP_REASONS:
         return "stop_loss + trailing_stop_loss"
+    if reason in TARGET_REASONS:
+        return "hedef (take profit)"
     return reason or "?"
 
 
@@ -325,7 +385,8 @@ def trade_line(t: TradeRow, now_ms: int) -> str:
 # --------------------------------------------------------------------------
 
 
-OUTAGE_LABELS = {"bot": "bot kapalı", "exchange_down": "WEEX verisi bayat", "weex_unreachable": "WEEX'e ulaşılamıyor"}
+OUTAGE_LABELS = {"bot": "bot kapalı", "bot_planned": "bot kapalı (planlı durdurma)",
+                 "exchange_down": "WEEX verisi bayat", "weex_unreachable": "WEEX'e ulaşılamıyor"}
 
 
 class DemoReport:
@@ -386,33 +447,56 @@ class DemoReport:
         label = "bot" if component == "freqtrade" else "kaydedici"
         if not sessions:
             return Outcome(WARN, f"{label} için çalışma kaydı yok")
-        start = max(self.start, min(s.started_ms for s in sessions))
+        first = min(s.started_ms for s in sessions)
+        if component == "freqtrade":
+            # işlem ayırma: pencereden bağımsız, tüm geçmişteki boşluklar (planlı durdurmalar dahil)
+            for a, b in summarize(sessions, first, self.now).downtime:
+                if b - a > MIN_GAP_MS:
+                    self.outages.append((a, b, "bot_planned" if is_planned_gap(a, sessions) else "bot"))
+        start = max(self.start, first)
         if self.now <= start:
             return Outcome(INFO, f"{label}: dönem çok kısa")
-        summ = summarize(sessions, start, self.now, min_gap_ms=MIN_GAP_MS)
-        down_ms = sum(b - a for a, b in summ.downtime)
+        summ = summarize(sessions, start, self.now)  # tüm boşluklar (kısa olanlar dahil)
+        planned = [(a, b) for a, b in summ.downtime if is_planned_gap(a, sessions)]
+        outages = [(a, b) for a, b in summ.downtime if (a, b) not in planned]
+        planned_ms = sum(b - a for a, b in planned)
+        expected_ms = self.now - start - planned_ms  # planlı çalışma süresi
+        shown_out = [(a, b) for a, b in outages if b - a > MIN_GAP_MS]
+        shown_planned = [(a, b) for a, b in planned if b - a > MIN_GAP_MS]
+        abnormal = abnormal_stops(sessions, start, self.now)
         restarts = max(0, summ.sessions - 1)
         latest = newest(sessions)
         running = session_running(latest, self.now)
         state = "şu an çalışıyor" if running else (
             f"şu an kapalı (son kayıt {fmt_both(from_ms(latest.end_ms()))})")
         since = f" ({fmt_both(from_ms(start))} itibarıyla)" if start != self.start else ""
-        text = (f"%{summ.uptime_pct:.2f}{since}; kesinti {len(summ.downtime)} "
-                f"(toplam {fmt_age(down_ms)}), yeniden başlatma {restarts}, temiz olmayan kapanış "
-                f"{summ.unclean_stops}; {state}")
-        lines = [fmt_period(a, b) for a, b in summ.downtime] or ["2 dakikadan uzun kesinti yok"]
-        self.rep.section(f"Kesinti dönemleri – {label}", lines, echo=False)
-        if component == "freqtrade":
-            self.outages += [(a, b, "bot") for a, b in summ.downtime]
-        if summ.uptime_pct < UPTIME_WARN_PCT:
-            return Outcome(WARN, text + f" – %{UPTIME_WARN_PCT:.0f}'in altında")
-        if summ.unclean_stops:
-            return Outcome(WARN, text + " – temiz olmayan kapanış: elektrik/çökme/zorla durdurma")
-        return text
+        pct = 100.0 * summ.up_ms / expected_ms if expected_ms > 0 else None
+        pct_text = f"%{pct:.2f}" if pct is not None else "- (dönem boyunca planlı olarak kapalı)"
+        text = (f"{pct_text}{since} (planlı durdurmalar hariç); kesinti {len(shown_out)} "
+                f"(toplam {fmt_age(sum(b - a for a, b in shown_out))}), planlı durdurma {len(shown_planned)} "
+                f"(toplam {fmt_age(sum(b - a for a, b in shown_planned))}), yeniden başlatma {restarts}, "
+                "temiz olmayan kapanış "
+                f"{len(abnormal)}; {state}")
+        self.rep.section(f"Kesinti dönemleri – {label}", [fmt_period(a, b) for a, b in shown_out]
+                         or ["2 dakikadan uzun kesinti yok"], echo=False)
+        self.rep.section(f"Planlı durdurmalar – {label} (uptime'a sayılmaz, işlemler yine ayrılır)",
+                         [fmt_period(a, b) for a, b in shown_planned] or ["yok"], echo=False)
+        if abnormal:
+            self.rep.section(f"Temiz olmayan kapanışlar – {label}",
+                             [f"{fmt_both(from_ms(s.end_ms()))}: {stop_label(s)}" for s in abnormal], echo=False)
+        warn = []
+        if pct is not None and pct < UPTIME_WARN_PCT:
+            warn.append(f"%{UPTIME_WARN_PCT:.0f}'in altında")
+        if abnormal:
+            kinds = Counter("kapanış kaydı yok" if s.stopped_ms is None else (s.stop_kind or "?").split(":")[0]
+                            for s in abnormal)
+            warn.append("temiz olmayan kapanış: " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items())))
+        return Outcome(WARN, text + " – " + "; ".join(warn)) if warn else text
 
     def health_events(self):
         events = [e for e in self.events if self.start <= e.ts_ms <= self.now]
-        self.outages += event_outages(events, self.sessions, self.start, self.now)
+        # işlem ayırma için tüm geçmiş: pencereden önce başlayan kesinti de sayılır
+        self.outages += event_outages(self.events, self.sessions, 0, self.now)
         if not events:
             return "dönemde sağlık olayı yok (WEEX/Binance kesintisi kaydedilmedi)"
         counts = Counter(e.kind for e in events)

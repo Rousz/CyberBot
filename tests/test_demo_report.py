@@ -127,17 +127,24 @@ def test_full_report_excludes_outage_trades_and_computes_stats(data_env, tmp_pat
     assert code == 0
     assert "SONUÇ: BAŞARILI (uyarılarla)" in text
     assert "UTC (İstanbul" in text
-    # uptime: 30 saatte 28 saat 1 dk çalıştı (çöküş: son kalp atışı + 60 sn)
-    assert "%93.39" in text and "%95'in altında" in text
+    # uptime: 30 saatte 28 saat 1 dk çalıştı (çöküş: son kalp atışı + 60 sn); 10h-11h temiz
+    # durdurma sonrası planlı boşluk -> uptime planlı çalışma süresi (29 saat) üzerinden
+    assert "%96.61" in text and "%95'in altında" not in text
+    assert "kesinti 1 (toplam 59 dk), planlı durdurma 1 (toplam 60 dk)" in text
     assert "yeniden başlatma 2, temiz olmayan kapanış 1" in text
+    assert "temiz olmayan kapanış: kapanış kaydı yok 1" in text
     assert "şu an çalışıyor" in text
     kesinti = text.split("Kesinti dönemleri – bot:")[1].split("\n\n")[0]
-    assert kesinti.count("→") == 2 and "(60 dk)" in kesinti and "(59 dk)" in kesinti
+    assert kesinti.count("→") == 1 and "(59 dk)" in kesinti
+    planned = text.split("Planlı durdurmalar – bot")[1].split("\n\n")[0]
+    assert planned.count("→") == 1 and "(60 dk)" in planned
+    abnormal = text.split("Temiz olmayan kapanışlar – bot:")[1].split("\n\n")[0]
+    assert "kapanış kaydı yok (elektrik" in abnormal
     assert "kaydedici_uptime" in text and "%100.00" in text
     # kesintili işlemler ayrıldı
     assert "kapanmış 5 (temiz 3, kesintili 2), açık 1" in text
     dirty = text.split("Kesintili dönemle kesişen işlemler (istatistik dışı):")[1].split("\n\n")[0]
-    assert "SOL/USDT:USDT" in dirty and "bot kapalı" in dirty and "WEEX verisi bayat" in dirty
+    assert "SOL/USDT:USDT" in dirty and "bot kapalı (planlı durdurma)" in dirty and "WEEX verisi bayat" in dirty
     # temiz istatistikler: +10, -5, +4
     clean = text.split("Temiz işlemlerin sonuçları (kesintili işlemler hariç):")[1].split("\n\n")[0]
     assert "işlem sayısı: 3 (kazanan 2, kaybeden 1)" in clean
@@ -202,6 +209,111 @@ def test_event_outage_without_recovery_ends_with_its_session():
     short = [Event(1, "freqtrade", 2 * HOUR, "exchange_down", ""), Event(2, "freqtrade", 2 * HOUR + MIN,
                                                                         "exchange_recovered", "")]
     assert dr.event_outages(short, sessions, 0, 10 * HOUR) == []  # 2 dk'dan kısa
+
+
+def test_down_event_left_open_by_a_stopped_session_does_not_span_later_sessions():
+    from cyberbot.uptime import Event, Session
+
+    # B: 2h'de exchange_down, 3h'de temiz durdu (recovered yok); C: 4h-100h, 90h-90.5h kısa kesinti
+    sessions = {"freqtrade": [Session(1, "freqtrade", 0, 3 * HOUR, 3 * HOUR, "clean"),
+                              Session(2, "freqtrade", 4 * HOUR, 100 * HOUR - 30_000, None, None)]}
+    events = [Event(1, "freqtrade", 2 * HOUR, "exchange_down", ""),
+              Event(2, "freqtrade", 4 * HOUR, "exchange_recovered", "yeniden başlatmada sıfırlandı"),
+              Event(3, "freqtrade", 90 * HOUR, "exchange_down", ""),
+              Event(4, "freqtrade", 90 * HOUR + 30 * MIN, "exchange_recovered", "")]
+    assert dr.event_outages(events, sessions, 0, 100 * HOUR) == [
+        (2 * HOUR, 3 * HOUR, "exchange_down"), (90 * HOUR, 90 * HOUR + 30 * MIN, "exchange_down")]
+    # sonraki oturum hiç recovered yazmasa da aynı
+    assert dr.event_outages([events[0], events[2], events[3]], sessions, 0, 100 * HOUR)[0] == \
+        (2 * HOUR, 3 * HOUR, "exchange_down")
+    # monitor olayları (recorder bileşeni) kaydedicinin oturumlarına göre kapanır
+    rec = {"recorder": [Session(3, "recorder", 0, 5 * HOUR, 5 * HOUR, "clean"),
+                        Session(4, "recorder", 6 * HOUR, 100 * HOUR - 10_000, None, None)]}
+    ev = [Event(5, "recorder", HOUR, "weex_unreachable", ""), Event(6, "recorder", 50 * HOUR, "weex_recovered", "")]
+    assert dr.event_outages(ev, rec, 0, 100 * HOUR) == [(HOUR, 5 * HOUR, "weex_unreachable")]
+
+
+def test_days_window_keeps_outages_that_began_before_it(data_env, tmp_path):
+    day = 24 * HOUR
+    ft = UptimeStore(data_env / "uptime.sqlite", "freqtrade")
+    s1 = ft.start_session(at_ms=NOW - 10 * day)
+    ft.heartbeat(s1, at_ms=NOW - 8 * day)  # 8 gün önce çöktü, 7.5 gün önce yeniden açıldı
+    s2 = ft.start_session(at_ms=NOW - 7 * day - 12 * HOUR)
+    ft.heartbeat(s2, at_ms=NOW - 20_000)
+    ft.add_event("exchange_down", "bayat", at_ms=NOW - 7 * day - 11 * HOUR)  # 2 gün WEEX verisi bayat
+    ft.add_event("exchange_recovered", "", at_ms=NOW - 5 * day - 11 * HOUR)
+    make_trades_db(data_env / "tradesv3.dryrun.sqlite", [
+        # WEEX kesintisi içinde (pencereden önce başlayan kesinti)
+        closed("BTC/USDT:USDT", NOW - 7 * day + HOUR, NOW - 7 * day + 2 * HOUR, -40.0, "stop_loss"),
+        # pencereden önceki bot kesintisini kapsayıp pencerede kapanan işlem
+        closed("ETH/USDT:USDT", NOW - 9 * day, NOW - 6 * day, -10.0, "stop_loss"),
+        closed("SOL/USDT:USDT", NOW - 2 * day, NOW - 2 * day + HOUR, 5.0, "roi"),
+    ])
+    for argv in ([], ["--days", "7"]):
+        for f in (tmp_path / "reports").glob("demo_report_*.txt"):
+            f.unlink()
+        assert run(argv) == 0
+        text = summary_text(tmp_path)
+        assert "kapanmış 3 (temiz 1, kesintili 2)" in text, argv
+        dirty = text.split("Kesintili dönemle kesişen işlemler (istatistik dışı):")[1].split("\n\n")[0]
+        assert "WEEX verisi bayat" in dirty and "bot kapalı" in dirty
+    # pencere içinde uptime %100 (kesinti pencereden önceydi); temiz sonuç sadece SOL
+    assert "%100.00" in text and "temiz +5.00 USDT" in text
+
+
+def test_planned_stops_do_not_lower_uptime_but_trades_are_still_separated(data_env, tmp_path):
+    ft = UptimeStore(data_env / "uptime.sqlite", "freqtrade")
+    s1 = ft.start_session(at_ms=NOW - 14 * 24 * HOUR)
+    ft.stop_session(s1, at_ms=NOW - 9 * 24 * HOUR)  # 11_demo_stop: hafta sonu 63 saat kapalı
+    s2 = ft.start_session(at_ms=NOW - 9 * 24 * HOUR + 63 * HOUR)
+    ft.heartbeat(s2, at_ms=NOW - 20_000)
+    make_trades_db(data_env / "tradesv3.dryrun.sqlite", [
+        closed("BTC/USDT:USDT", NOW - 9 * 24 * HOUR - HOUR, NOW - 9 * 24 * HOUR + 64 * HOUR, 30.0, "take_profit"),
+        closed("ETH/USDT:USDT", NOW - 2 * 24 * HOUR, NOW - 2 * 24 * HOUR + HOUR, 7.0, "take_profit"),
+        closed("ETH/USDT:USDT", NOW - 24 * HOUR, NOW - 24 * HOUR + HOUR, 3.0, "roi"),
+    ])
+    assert run() == 0
+    text = summary_text(tmp_path)
+    up = next(ln for ln in text.splitlines() if "bot_uptime" in ln)
+    assert up.startswith("  [OK") and "%100.00 (planlı durdurmalar hariç)" in up
+    assert "kesinti 0" in up and "planlı durdurma 1 (toplam 2.6 gün)" in up and "temiz olmayan kapanış 0" in up
+    assert "%95'in altında" not in text
+    assert "kapanmış 3 (temiz 2, kesintili 1)" in text
+    assert "bot kapalı (planlı durdurma)" in text
+    # 'roi' (custom_roi) ve 'take_profit' aynı satırda
+    reasons = text.split("Çıkış nedenleri (temiz):")[1].split("\n\n")[0]
+    assert "hedef (take profit): 2 işlem, kazanma %100, +10.00 USDT" in reasons
+
+
+def test_stalled_and_crash_stops_are_abnormal(data_env, tmp_path):
+    ft = UptimeStore(data_env / "uptime.sqlite", "freqtrade")
+    a = ft.start_session(at_ms=T0)
+    ft.stop_session(a, kind="stalled", at_ms=T0 + 5 * HOUR)  # ana döngü durdu
+    b = ft.start_session(at_ms=T0 + 8 * HOUR)
+    ft.stop_session(b, kind="crash:OperationalException", at_ms=T0 + 10 * HOUR)
+    c = ft.start_session(at_ms=T0 + 10 * HOUR + MIN)
+    ft.stop_session(c, kind="reload", at_ms=T0 + 20 * HOUR)  # /reload_config: normal
+    d = ft.start_session(at_ms=T0 + 20 * HOUR + 30_000)
+    ft.heartbeat(d, at_ms=NOW - 20_000)
+    assert run() == 0
+    text = summary_text(tmp_path)
+    up = next(ln for ln in text.splitlines() if "bot_uptime" in ln)
+    assert up.startswith("  [UYARI") and "temiz olmayan kapanış 2" in up
+    assert "crash 1" in up and "stalled 1" in up
+    abnormal = text.split("Temiz olmayan kapanışlar – bot:")[1].split("\n\n")[0]
+    assert "ana döngü durdu/takıldı (stalled" in abnormal
+    assert "Freqtrade hatayla kapandı (OperationalException)" in abnormal
+    assert "reload" not in abnormal
+    # stalled sonrası 3 saat plansız kesinti; crash sonrası 1 dk kısa boşluk listelenmez
+    kesinti = text.split("Kesinti dönemleri – bot:")[1].split("\n\n")[0]
+    assert kesinti.count("→") == 1 and "(3.0 saat)" in kesinti
+    assert "planlı durdurma 0" in up
+
+
+def test_reason_label_groups_targets_and_stops():
+    assert dr.reason_label("roi") == dr.reason_label("take_profit") == "hedef (take profit)"
+    assert dr.reason_label("stop_loss") == dr.reason_label("trailing_stop_loss")
+    assert dr.reason_label(None) == "?" and dr.reason_label("force_exit") == "force_exit"
 
 
 def test_trade_stats_drawdown_and_profit_factor():

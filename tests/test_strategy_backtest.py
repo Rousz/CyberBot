@@ -28,7 +28,8 @@ from tests.weex_router import offline_weex
 ROOT = Path(__file__).resolve().parent.parent
 PAIRS = ["ETH/USDT:USDT", "SOL/USDT:USDT", "BTC/USDT:USDT"]
 TIMERANGE = "20260111-20260203"
-EXPECTED_EXITS = {"take_profit", "time_stop", "stop_loss", "trailing_stop_loss", "fill_beyond_stop", "force_exit"}
+# hedef (tp) custom_roi ile -> Freqtrade etiketi "roi"; süre/dolum custom_exit ile
+EXPECTED_EXITS = {"roi", "time_stop", "stop_loss", "trailing_stop_loss", "fill_beyond_stop", "force_exit"}
 
 
 @pytest.fixture(scope="module")
@@ -36,14 +37,15 @@ def env(tmp_path_factory):
     base = tmp_path_factory.mktemp("bt")
     ud = base / "user_data"
     datadir = ud / "data" / "weex"
-    sd.write_futures_data(datadir, {
+    series = {
         "BTC/USDT:USDT": sd.trend_series(seed=51, base=74000.0),
         "ETH/USDT:USDT": sd.trend_series(seed=1, base=2000.0),
         "SOL/USDT:USDT": sd.trend_series(seed=2, base=150.0),
-    })
+    }
+    sd.write_futures_data(datadir, series)
     overlay = base / "config.test.json"
     overlay.write_text(json.dumps({"exchange": {"pair_whitelist": PAIRS}}), encoding="utf-8")
-    return {"base": base, "ud": ud, "datadir": datadir, "overlay": overlay}
+    return {"base": base, "ud": ud, "datadir": datadir, "overlay": overlay, "series": series}
 
 
 @pytest.fixture(autouse=True)
@@ -90,6 +92,26 @@ def test_backtest_trades_with_leverage_and_expected_exits(backtest):
     assert {t["exit_reason"] for t in result["trades"]} <= EXPECTED_EXITS
     assert {t["is_short"] for t in result["trades"]} == {False, True}  # long ve short ikisi de
     assert len(trades) == result["total_trades"]
+
+
+def test_backtest_take_profit_is_hit_inside_the_candle(backtest, env):
+    """Hedef mumun tepe/dibine göre (mum içinde) yakalanır ve tam hedef fiyattan çıkılır;
+    hedefe değmiş bir işlem sonradan süre dolumu/stopla kapanmaz (canlıdaki ~5 sn denetim gibi)."""
+    _, trades, custom = backtest
+    roi = [t for t in trades if t.exit_reason == "roi"]
+    assert len(roi) >= 5
+    assert not [t for t in trades if t.exit_reason == "take_profit"]
+    for t in roi:
+        assert t.close_rate == pytest.approx(custom[t.id]["tp"], rel=1e-6)
+    for t in trades:
+        if t.exit_reason == "roi" or t.close_date_utc is None:
+            continue
+        tp = custom[t.id]["tp"]
+        df = env["series"][t.pair]
+        # çıkış mumundan önceki mumlar (çıkış mumunda süre/stop, açılışta/önce denetlenir)
+        held = df[(df["date"] >= t.open_date_utc) & (df["date"] < t.close_date_utc)]
+        touched = (held["low"] < tp).any() if t.is_short else (held["high"] > tp).any()
+        assert not touched, (t.pair, t.exit_reason, t.open_date_utc, t.close_date_utc, tp)
 
 
 def test_backtest_every_trade_planned_rr_at_least_min_rr(backtest):

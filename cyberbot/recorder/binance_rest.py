@@ -11,16 +11,23 @@ exchangeInfo ve premiumIndex.
   satırı gelmeyen anahtarlar bir kez daha sorulur.
 - Geçmiş doldurma (ilk açılış, yeni sembol, uzun kesinti): son 29.5 gün, düşük öncelikli
   kuyruk (BTC, ETH, sonra hacim), aynı sınırlayıcı: canlı sorgu her zaman önce gider.
+  Plan son ts'den değil DB'de EKSİK olan periyotlardan yapılır (açılışta ve saatte bir), böylece
+  yarıda kalan doldurma (yeniden başlatma, ağ hatası) sonra devam eder. Başarılı cevap alınan
+  aralık bn_backfill_checked'e yazılır (Binance'te olmayan kısım tekrar sorulmaz). Eksik
+  olan her sembol için 'open' boşluk yazılır; tümü dolunca 'backfilled' olur.
+  Geçici hata (ağ, 429, 418, 5xx): görev artan beklemeyle tekrar kuyruğa; deneme hakkı bitince
+  bırakılır ve bir sonraki saatlik planda yeniden denenir.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import heapq
 import itertools
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from cyberbot.recorder.db import BN_ENDPOINTS, DAY_MS, PERIOD_MS, DerivsDB, to_int
 from cyberbot.recorder.limiter import Clock, HttpClient, RateLimiter, retry_after_s
@@ -41,6 +48,8 @@ class BackfillTask:
     start_ms: int = field(compare=False)
     end_ms: int = field(compare=False)
     attempts: int = field(default=0, compare=False)
+    not_before_ms: int = field(default=0, compare=False)
+    finished: bool = field(default=False, compare=False)
 
 
 def bar_open(now_ms: int, period_ms: int) -> int:
@@ -52,31 +61,38 @@ def live_floor(bar_ms: int, period_ms: int, limit: int) -> int:
     return bar_ms - (limit - 1) * period_ms
 
 
+def window_start_ms(now_ms: int, period_ms: int, backfill_days: float) -> int:
+    start = now_ms - int(backfill_days * DAY_MS)
+    return start + (-start % period_ms)  # periyot ızgarasına yukarı yuvarla
+
+
+def chunk_ranges(ranges: list[tuple[int, int]], *, period_ms: int, limit: int) -> list[tuple[int, int]]:
+    """Yarı açık [a, b) aralıkları -> tek istekte sorulacak [startTime, endTime] (en fazla limit periyot)."""
+    out = []
+    for a, b in ranges:
+        t = a
+        while t < b:
+            out.append((t, min(t + (limit - 1) * period_ms, b - 1)))
+            t += limit * period_ms
+    return out
+
+
 def plan_ranges(last_ts: int | None, now_ms: int, *, period_ms: int, limit: int,
                 backfill_days: float) -> list[tuple[int, int]]:
-    """Bir (sembol, uç nokta) için doldurulacak [başlangıç, bitiş] aralıkları (her biri tek istek)."""
-    window_start = now_ms - int(backfill_days * DAY_MS)
-    window_start += -window_start % period_ms  # periyot ızgarasına yukarı yuvarla
+    """Son ts'den canlı pencereye kadar doldurulacak [başlangıç, bitiş] aralıkları (her biri tek istek)."""
+    window_start = window_start_ms(now_ms, period_ms, backfill_days)
     floor = live_floor(bar_open(now_ms, period_ms), period_ms, limit)
     start = window_start if last_ts is None else max(window_start, last_ts + period_ms)
-    ranges = []
-    t = start
-    while t < floor:
-        end = min(t + (limit - 1) * period_ms, floor - 1)
-        ranges.append((t, end))
-        t += limit * period_ms
-    return ranges
+    return chunk_ranges([(start, floor)], period_ms=period_ms, limit=limit)
 
 
-def plan_backfill(symbols: list[str], last_ts: dict[tuple[str, str], int], now_ms: int, *, period_ms: int,
-                  limit: int, backfill_days: float, endpoints: list[str] = ENDPOINTS,
-                  first_priority: int = 0) -> list[BackfillTask]:
-    """symbols öncelik sırasında (BTC, ETH, sonra hacim)."""
+def interleave_tasks(symbols: list[str], ranges_for: Callable[[str, str], list[tuple[int, int]]], *,
+                     endpoints: list[str] = ENDPOINTS, first_priority: int = 0) -> list[BackfillTask]:
+    """symbols öncelik sırasında; ranges_for(sembol, uç) -> [startTime, endTime] listesi."""
     tasks = []
     seq = itertools.count()
     for rank, symbol in enumerate(symbols):
-        per_endpoint = {e: plan_ranges(last_ts.get((symbol, e)), now_ms, period_ms=period_ms, limit=limit,
-                                       backfill_days=backfill_days) for e in endpoints}
+        per_endpoint = {e: ranges_for(symbol, e) for e in endpoints}
         # aynı zaman dilimi tüm uçlar için art arda: satırlar birlikte tamamlanır
         for i in range(max((len(r) for r in per_endpoint.values()), default=0)):
             for endpoint, ranges in per_endpoint.items():
@@ -84,6 +100,21 @@ def plan_backfill(symbols: list[str], last_ts: dict[tuple[str, str], int], now_m
                     start, end = ranges[i]
                     tasks.append(BackfillTask(first_priority + rank, next(seq), symbol, endpoint, start, end))
     return tasks
+
+
+def plan_backfill(symbols: list[str], last_ts: dict[tuple[str, str], int], now_ms: int, *, period_ms: int,
+                  limit: int, backfill_days: float, endpoints: list[str] = ENDPOINTS,
+                  first_priority: int = 0) -> list[BackfillTask]:
+    """Son ts'ye göre plan (canlı turdaki uzun kesinti için). symbols öncelik sırasında."""
+    return interleave_tasks(
+        symbols, lambda s, e: plan_ranges(last_ts.get((s, e)), now_ms, period_ms=period_ms, limit=limit,
+                                          backfill_days=backfill_days),
+        endpoints=endpoints, first_priority=first_priority)
+
+
+def retry_delay_s(attempt: int, cap_s: float = 600.0) -> float:
+    """Geçici hatadan sonra doldurma görevinin bekleme süresi: 30, 60, 120 ... en fazla 10 dk."""
+    return min(cap_s, 30.0 * 2 ** max(0, attempt - 1))
 
 
 class BinanceRest:
@@ -104,12 +135,16 @@ class BinanceRest:
                                    window_max=int(cfg["window_max"]), name="Binance REST")
         self.last_ts: dict[tuple[str, str], int] = db.bn_last_ts(self.period)
         self.queue: list[BackfillTask] = []
+        self.delayed: list[BackfillTask] = []           # geçici hatadan sonra not_before_ms bekleyenler
         self._seq = itertools.count(1_000_000)
-        self.pending: dict[tuple[str, str], int] = {}   # anahtar -> kuyruktaki görev sayısı
+        self.pending: dict[tuple[str, str], int] = {}   # anahtar -> kuyruktaki (bekleyen dahil) görev sayısı
         self._queue_event = asyncio.Event()
         self.priority: dict[str, int] = {}
-        self.open_gaps: set[str] = set()     # 'open' boşluğu olan semboller
-        self.failed: set[str] = set()        # doldurma görevi bırakılan semboller (boşluk açık kalır)
+        self.open_gaps: set[str] = set(db.open_gap_symbols(SOURCE))  # 'open' boşluğu olan semboller
+        self.failed: set[str] = set()        # doldurma görevi bırakılan semboller (sonraki planda tekrar)
+        self.done_count = 0                  # tamamlanan doldurma görevleri (ilerleme kontrolü)
+        self._done_at_plan = 0
+        self._plan_ms: int | None = None
 
     # --- düşük seviye -------------------------------------------------------
 
@@ -172,7 +207,7 @@ class BinanceRest:
         last = self.last_ts.get(key)
         if last is not None and last < floor - self.period_ms and key not in self.pending:
             # canlı pencereden (500 periyot) uzun kesinti: aradaki kısım doldurma kuyruğuna
-            self.db.add_gap(SOURCE, symbol, last + self.period_ms, floor, "outage", "open", self.clock.now_ms())
+            self.db.open_gap(SOURCE, symbol, last + self.period_ms, floor, "outage", self.clock.now_ms())
             self.open_gaps.add(symbol)
             if self.cfg.get("backfill", True):
                 self.enqueue(plan_backfill([symbol], {key: last}, bar_ms, period_ms=self.period_ms,
@@ -217,7 +252,8 @@ class BinanceRest:
 
     def record_startup_gaps(self, symbols: list[str], now_ms: int) -> None:
         """Kaydedici kapalıyken kaçan Binance verisi: son 29.5 gün içindeki kısım 'open'
-        (doldurulunca 'backfilled'), daha eskisi 'unrecoverable'. Yeni sembol boşluk sayılmaz."""
+        (doldurulunca 'backfilled'; sembolün açık boşluğu varsa o genişler), daha eskisi
+        'unrecoverable'. Yeni sembolün geçmişi plan() içinde 'open' boşluk olarak yazılır."""
         bar = bar_open(now_ms, self.period_ms)
         window_start = now_ms - int(float(self.cfg["backfill_days"]) * DAY_MS)
         for symbol in symbols:
@@ -231,7 +267,7 @@ class BinanceRest:
             if start < window_start:
                 self.db.add_gap(SOURCE, symbol, start, window_start, "downtime", "unrecoverable", now_ms)
                 start = window_start
-            self.db.add_gap(SOURCE, symbol, start, bar, "downtime", "open", now_ms)
+            self.db.open_gap(SOURCE, symbol, start, bar, "downtime", now_ms)
             self.open_gaps.add(symbol)
 
     def _maybe_close_gap(self, symbol: str) -> None:
@@ -257,16 +293,47 @@ class BinanceRest:
         self.limiter.low_cap = max(0, self.limiter.window_max - reserve)
 
     def plan(self, symbols_in_order: list[str], now_ms: int) -> int:
-        """Henüz kuyrukta olmayan anahtarlar için doldurma görevleri ekler."""
+        """DB'de eksik olan (ve kuyrukta olmayan) periyotlar için doldurma görevleri ekler.
+        Açılışta ve saatte bir çağrılır; yarıda kalan doldurma böylece devam eder."""
         if not self.cfg.get("backfill", True):
             return 0
-        fresh = [s for s in symbols_in_order if not any((s, e) in self.pending for e in ENDPOINTS)]
-        tasks = plan_backfill(fresh, self.last_ts, now_ms, period_ms=self.period_ms, limit=self.limit,
-                              backfill_days=float(self.cfg["backfill_days"]))
+        self._check_progress(now_ms)
+        self.failed.clear()  # bırakılan görevler bu planda yeniden denenir
+        window_start = window_start_ms(now_ms, self.period_ms, float(self.cfg["backfill_days"]))
+        floor = live_floor(bar_open(now_ms, self.period_ms), self.period_ms, self.limit)
+        self.db.prune_backfill_checked(window_start - DAY_MS)
+        missing: dict[tuple[str, str], list[tuple[int, int]]] = {}
+        for endpoint in ENDPOINTS:
+            free = [s for s in symbols_in_order if (s, endpoint) not in self.pending]
+            for symbol, ranges in self.db.bn_missing(endpoint, self.period, free, window_start, floor).items():
+                missing[(symbol, endpoint)] = ranges
+        tasks = interleave_tasks(symbols_in_order, lambda s, e: chunk_ranges(missing.get((s, e), []),
+                                                                             period_ms=self.period_ms,
+                                                                             limit=self.limit))
         for t in tasks:
             t.priority = self.priority.get(t.symbol, t.priority)
+        for symbol in symbols_in_order:
+            ranges = [r for e in ENDPOINTS for r in missing.get((symbol, e), [])]
+            if ranges:
+                history = all(self.last_ts.get((symbol, e)) is None for e in ENDPOINTS)
+                self.db.open_gap(SOURCE, symbol, min(a for a, _ in ranges), max(b for _, b in ranges),
+                                 "history" if history else "missing", now_ms)
+                self.open_gaps.add(symbol)
         self.enqueue(tasks)
         return len(tasks)
+
+    def _check_progress(self, now_ms: int) -> None:
+        """Saatlik planda: kuyrukta iş varken son plandan beri hiç görev bitmediyse uyarır."""
+        waiting = len(self.queue) + len(self.delayed)
+        done = self.done_count - self._done_at_plan
+        if self._plan_ms is not None and waiting and now_ms - self._plan_ms >= 30 * 60_000:
+            if done == 0:
+                logger.warning("Binance geçmiş doldurma ilerlemiyor: %d istek bekliyor, son %d dakikada hiçbiri"
+                               " tamamlanmadı (hız sınırı/erişim?)", waiting, (now_ms - self._plan_ms) // 60_000)
+            else:
+                logger.info("Binance geçmiş doldurma: son planda beri %d istek tamamlandı, %d bekliyor", done,
+                            waiting)
+        self._plan_ms, self._done_at_plan = now_ms, self.done_count
 
     def enqueue(self, tasks: list[BackfillTask]) -> None:
         for t in tasks:
@@ -278,34 +345,58 @@ class BinanceRest:
             self._queue_event.set()
 
     def _task_done(self, task: BackfillTask, ok: bool) -> None:
+        if task.finished:
+            return
+        task.finished = True
         key = (task.symbol, task.endpoint)
-        if not ok:
+        if ok:
+            self.done_count += 1
+        else:
             self.failed.add(task.symbol)
         self.pending[key] -= 1
         if self.pending[key] <= 0:
             del self.pending[key]
             self._maybe_close_gap(task.symbol)
 
+    def _release_delayed(self, now_ms: int) -> None:
+        ready = [t for t in self.delayed if t.not_before_ms <= now_ms]
+        if ready:
+            self.delayed = [t for t in self.delayed if t.not_before_ms > now_ms]
+            for t in ready:
+                heapq.heappush(self.queue, t)
+
     async def backfill_once(self) -> bool:
-        """Kuyruktan bir görev işler. Kuyruk boşsa False."""
+        """Kuyruktan bir görev işler. Şu an işlenecek görev yoksa False (bekleyenler sonra döner)."""
+        self._release_delayed(self.clock.now_ms())
         if not self.queue:
             return False
         task = heapq.heappop(self.queue)
+        try:
+            await self._run_task(task)
+        except Exception:  # ör. DB hatası: görev kaybolmasın, anahtar sonraki planda tekrar planlanır
+            self._task_done(task, False)
+            raise
+        return True
+
+    async def _run_task(self, task: BackfillTask) -> None:
         status, data = await self.get(
             f"/futures/data/{task.endpoint}",
             {"symbol": task.symbol, "period": self.period, "startTime": task.start_ms, "endTime": task.end_ms,
              "limit": self.limit}, low=True, label=task.endpoint, symbol=task.symbol)
         if status == 200:
             self._store(task.endpoint, task.symbol, data, live=False)
+            # sorulan aralık (periyot ızgarasında yarı açık) bitti: gelmeyen periyotlar Binance'te yok
+            end = task.end_ms - task.end_ms % self.period_ms + self.period_ms
+            self.db.bn_mark_checked(task.symbol, task.endpoint, task.start_ms, end, self.clock.now_ms())
             self._task_done(task, True)
         elif (status in (0, 429, 418) or status >= 500) and task.attempts + 1 < int(self.cfg["backfill_attempts"]):
             task.attempts += 1
-            heapq.heappush(self.queue, task)  # aynı öncelikle tekrar (sınırlayıcı bekletir)
+            task.not_before_ms = self.clock.now_ms() + int(retry_delay_s(task.attempts) * 1000)
+            self.delayed.append(task)  # hemen değil, artan beklemeyle tekrar
         else:
-            logger.warning("Binance doldurma bırakıldı: %s %s %s HTTP %s", task.symbol, task.endpoint,
-                           task.start_ms, status)
+            logger.warning("Binance doldurma bırakıldı (sonraki saatlik planda tekrar): %s %s %s HTTP %s",
+                           task.symbol, task.endpoint, task.start_ms, status)
             self._task_done(task, False)
-        return True
 
     async def backfill_worker(self, stop: asyncio.Event) -> None:
         while not stop.is_set():
@@ -320,4 +411,5 @@ class BinanceRest:
                 raise
             except Exception:  # bir görev hatası işçiyi düşürmesin
                 logger.exception("Binance doldurma hatası")
-                await self.clock.sleep(5)
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(stop.wait(), timeout=5)

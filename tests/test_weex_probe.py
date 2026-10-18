@@ -88,9 +88,63 @@ def test_closed_last_candle_and_exclusive_start_are_flagged(tmp_path):
     code, summary, *_ = run(tmp_path, forming=False, start_inclusive=False, history_side="last")
     assert code == 0  # uyarılar kontrolü düşürmez
     assert "BAŞARILI (uyarılarla)" in summary
-    assert "son satır KAPANMIŞ mum" in summary and "ohlcv_partial_candle=False gerekli" in summary
+    # freqtrade 2026.9 yeni kapanan mumu 15 sn sonra tutar: ayar değişmez, tek başına uyarı değil
+    assert "son satır KAPANMIŞ mum" in summary and "ohlcv_partial_candle=True kalır" in summary
+    assert "ohlcv_partial_candle=False" not in summary
+    assert "[OK     ] WEEX          klines_1000" in summary
     assert "startTime HARİÇ" in summary and "(SON 100)" in summary
     assert "freqtrade_ext/weex.py düzeltilmeli" in summary
+
+
+class GappyRouter(ProbeRouter):
+    """historyKlines her 100'lük pencerenin son mumunu atlar (ör. endTime hariç sayılırsa)."""
+
+    def route(self, api, path, params):
+        rows = super().route(api, path, params)
+        if path == "capi/v3/market/historyKlines" and len(rows) == 100:
+            rows = rows[:-1]
+        return rows
+
+
+def test_freqtrade_history_gaps_are_seen_not_filled(tmp_path):
+    # Freqtrade'in refresh_latest_ohlcv(cache=False) yolu eksik mumları sahte satırlarla
+    # doldururdu; prob boşlukları görüp UYARI vermeli, "parçalama doğru" dememeli.
+    clock = FakeClock()
+    router = GappyRouter()
+    with offline_weex(router):
+        wp.main(transport=ProbeTransport(clock), reports_dir=tmp_path, clock=clock)
+    summary = next(tmp_path.glob("weex_probe_*.txt")).read_text(encoding="utf-8")
+    assert router.calls_to("capi/v3/market/historyKlines")
+    for name in ("mum_5m_7gun", "mark_1h_60gun"):
+        row = line(summary, f"Freqtrade     {name}")
+        assert row.startswith("  [UYARI") and "eksik 0" not in row
+    assert "eksik 20 (100'lük parça sınırında 20)" in line(summary, "Freqtrade     mum_5m_7gun")
+    assert "parçalaması doğru" not in summary
+    assert "freqtrade_ext/weex.py parçalaması gözden geçirilmeli" in line(summary, "Karar – Freqtrade 5m geçmişi")
+
+
+def test_freqtrade_history_since_is_on_candle_grid(tmp_path):
+    _, _, _, _, router = run(tmp_path)
+    starts = [int(p["startTime"]) for p in router.calls_to("capi/v3/market/historyKlines") if "startTime" in p]
+    assert starts
+    assert all(s % (5 * MIN) == 0 for s in starts)
+
+
+def test_klines_request_near_candle_end_waits_and_keeps_forming(tmp_path):
+    # isteğin hemen ardından mum sınırı geçerse oluşan mum "kapanmış" sanılmamalı
+    from cyberbot.report import Report
+    tf = 5 * MIN
+    clock = FakeClock(1_776_000_000_000 // tf * tf + tf - 200)  # sınırdan 0.2 sn önce
+    rep = Report("t", "t", tmp_path)
+    probe = wp.Probe(rep, ProbeTransport(clock, forming=True), clock)
+    probe.weex_klines()
+    decision = next(v for k, v in rep.findings if "son mum" in k)
+    assert "OLUŞAN" in decision
+    assert clock.sleeps and clock.sleeps[0] > 15  # sınırı geçip açılış payının dışına bekledi
+    # mark/index için de aynı koruma
+    clock.t = (clock.t // wp.HOUR_MS + 1) * wp.HOUR_MS - 300
+    probe.weex_mark_klines()
+    assert "son oluşan mum" in next(v for k, v in rep.findings if "mark/index" in k)
 
 
 def test_slow_binance_publication_and_quiet_liquidations_warn(tmp_path):
@@ -123,8 +177,9 @@ def test_continuity_counts_gaps_at_chunk_borders():
     times = [1_001 * tf + i * tf for i in range(300)]
     times.remove(1_001 * tf + 100 * tf)  # parça sınırı
     times.remove(1_001 * tf + 150 * tf)  # parça içi
+    times.remove(1_001 * tf + 199 * tf)  # parçanın son mumu
     c = wp.continuity(times, tf, since)
-    assert c.n == 298 and len(c.missing) == 2 and c.missing_at_chunk_border == 1 and c.head_missing == 0
+    assert c.n == 297 and len(c.missing) == 3 and c.missing_at_chunk_border == 2 and c.head_missing == 0
 
 
 def test_history_semantics_decides_first_or_last():

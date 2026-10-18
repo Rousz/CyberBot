@@ -36,6 +36,10 @@ dosyalarına yazılır. Bunları bana gönder (aşağıda "Bana ne getirmeli").
 3. `C:\CyberBot\10_demo_start.bat` dosyasına çift tıkla.
 4. İlk seferde imaj hazırlanır (birkaç dakika). Sonra en fazla 2 dakika açılış kontrol edilir.
 
+`10_demo_start.bat` bot **zaten çalışıyorsa** onu düzgünce durdurup **yeniden açar** (açık sanal
+işlemler ve veriler korunur). Böylece her çalıştırmada güncel kod ve ayar yüklenir; Telegram'dan
+verilmiş `/stop` ve `/stopentry` da sıfırlanır.
+
 Ne görmelisin:
 
 - `bot (Freqtrade): yeni oturum ... açıldı` ve `kaydedici (recorder): yeni oturum ... açıldı`
@@ -45,6 +49,12 @@ Ne görmelisin:
 
 `SONUÇ: HATA` görürsen: ekranda bir açıklama ve son log satırları çıkar.
 `reports\demo_start_<tarih>.txt` dosyasını bana getir.
+
+## Güncellemeden sonra
+
+GitHub Desktop'ta **Fetch origin** → **Pull origin** yaptıktan sonra `10_demo_start.bat`'ı bir kez
+çalıştır. Çalışan bot ve kaydedici durdurulup yeni sürümle açılır; ayrıca `11_demo_stop.bat`
+çalıştırman gerekmez. Bunu yapmazsan bot eski sürümle çalışmaya devam eder.
 
 ## Günlük kullanım
 
@@ -70,8 +80,10 @@ Komutları kendi botuna yaz (başında `/` ile). Cevaplar İngilizce gelir.
 | `/stop` | Botun işlem döngüsünü durdurur (açık işlemler **kapatılmaz**, sadece takip edilmez). Program açık kalır; `/start` ile devam eder |
 | `/help` | Tüm komutların listesi |
 
-`/stop` ve `/stopentry` bot yeniden başlayınca (bilgisayar yeniden açılınca ya da `10_demo_start.bat`)
-sıfırlanır; bot normal çalışmaya döner.
+`/stop` ve `/stopentry` bot yeniden başlayınca sıfırlanır: `10_demo_start.bat` (bot çalışıyor olsa
+bile yeniden başlatır) ya da bilgisayarın yeniden açılması. Bot normal çalışmaya döner.
+`/stop` sonrası bot "çalışmıyor" sayılır: kaydedici "Bot çalışmıyor" uyarısı gönderir ve rapor
+o süreyi kesinti olarak gösterir.
 
 Önerim: bir sorun görürsen önce `/stopentry` kullan, bana yaz. `/stop` yerine bilgisayardan
 `11_demo_stop.bat` daha temizdir.
@@ -83,6 +95,8 @@ yok" ve "düzeldi" mesajları; kaydedici de "Bot çalışmıyor" uyarısı gönd
 
 `11_demo_stop.bat` dosyasına çift tıkla. Bot ve kaydedici en fazla 1-2 dakikada düzgünce kapanır.
 Ne görmelisin: iki satırda `temiz kapandı` ve `SONUÇ: BAŞARILI`.
+`zaten durmuştu` ya da `durdurmadan önce zaten çalışmıyordu` uyarısı, bot bu dosyadan önce de
+kapalıysa çıkar (ikincisi: elektrik kesintisi/çökme sonrası; raporda kesinti olarak görünür).
 
 - Veriler silinmez; `10_demo_start.bat` ile kaldığı yerden devam eder (açık sanal işlemler dahil).
 - Durdurduktan sonra bilgisayar yeniden açılsa da bot **kendiliğinden başlamaz**.
@@ -94,14 +108,22 @@ Sonuç `reports\demo_report_<tarih>.txt` dosyasına yazılır. İçinde:
 
 - Dönem, botun ve kaydedicinin **çalışma süresi yüzdesi**, kesinti dönemleri, yeniden başlatmalar,
   WEEX/Binance kesinti olayları.
+- **Planlı durdurmalar** (`11_demo_stop.bat` ile kapalı kaldığın süreler, güncelleme sonrası yeniden
+  başlatmalar) ayrı listelenir ve çalışma süresi yüzdesini **düşürmez**; yüzde, botun açık olması
+  gereken süre üzerinden hesaplanır.
+- **Temiz olmayan kapanışlar** ayrı listelenir: kapanış kaydı yok (elektrik, çökme, zorla durdurma),
+  `stalled` (bot açık ama ana döngüsü durmuş/takılmış, ör. hata sonrası ya da Telegram `/stop`),
+  `crash` (Freqtrade hatayla kapandı).
 - İşlem sayısı, kazanma oranı, toplam kâr/zarar (USDT ve 1000 USDT'nin yüzdesi), kâr faktörü,
   ortalama R, en büyük düşüş, long/short ayrımı, çıkış nedenleri, en iyi/en kötü pariteler,
   açık işlemler, funding toplamı.
-- **Kesintiye denk gelen işlemler ayrı listelenir ve sonuçlara katılmaz** (bot kapalıyken ya da
-  WEEX verisi gelmezken açık olan işlemler adil değerlendirilemez).
+- **Kesintiye denk gelen işlemler ayrı listelenir ve sonuçlara katılmaz** (bot kapalıyken – planlı
+  durdurma dahil – ya da WEEX verisi gelmezken açık olan işlemler adil değerlendirilemez).
+- Çıkış nedenlerinde `roi` ve `take_profit` birlikte **hedef (take profit)** olarak gösterilir.
 - Türev verisi kaydının son 24 saatteki durumu.
 
-Saatler hem UTC hem İstanbul saatiyle yazılır.
+Saatler hem UTC hem İstanbul saatiyle yazılır. `12_demo_report.bat --days 7` sadece son 7 günü
+gösterir; bu dönemden önce başlayan kesintiler yine hesaba katılır.
 
 ## Bana ne getirmeli
 
@@ -148,8 +170,8 @@ Bilgisayar uykuya geçerse bot da durur. Bir kez şu ayarları yap:
   "kesinti" ve "düzeldi" mesajları gelir (internet yokken Telegram da çalışmaz).
   Kesinti raporda görünür ve o sırada açık olan işlemler sonuçlardan ayrılır.
 - **Elektrik kesilirse / bilgisayar çökerse:** kapanış kaydı yazılamaz, rapor bunu
-  "temiz olmayan kapanış" olarak gösterir. Bilgisayar açılıp oturum açınca Docker ve bot
-  kendiliğinden başlar; bir şey yapman gerekmez.
+  "temiz olmayan kapanış" olarak gösterir (bot hatayla kapanırsa ya da ana döngüsü takılırsa da
+  öyle). Bilgisayar açılıp oturum açınca Docker ve bot kendiliğinden başlar; bir şey yapman gerekmez.
 - **WEEX kısa süre cevap vermezse:** bot birkaç kez dener, olmazsa aynı şekilde yeni işlem açmaz.
 
 ## Sorun giderme
@@ -158,12 +180,15 @@ Bilgisayar uykuya geçerse bot da durur. Bir kez şu ayarları yap:
 | --- | --- |
 | `SONUC: HATA - Docker Desktop calismiyor` | Docker Desktop'ı aç, **Engine running** yazısını bekle, tekrar dene |
 | `SONUC: HATA - .env dosyasi yok` | `setup_env.bat` çalıştır, Telegram bilgilerini yaz, kaydet |
-| `bot (Freqtrade): henüz hiç oturum kaydı yok` | WEEX'e erişim olmayabilir. 2-3 dakika bekleyip `10_demo_start.bat`'ı tekrar çalıştır; düzelmezse `demo_start` dosyasını bana getir |
+| `bot (Freqtrade): başlatma komutundan sonra yeni oturum açılmadı` | WEEX'e erişim olmayabilir. 2-3 dakika bekleyip `10_demo_start.bat`'ı tekrar çalıştır; düzelmezse `demo_start` dosyasını bana getir |
+| `eski oturum ... hâlâ çalışıyor, yeniden başlatılmadı` | `11_demo_stop.bat`, sonra `10_demo_start.bat`; yine olursa `demo_start` dosyasını getir |
+| `SONUC: HATA - bot baslatilmadi` | Docker imajı hazırlanamadı ya da çalışma kaydı okunamadı; internet bağlantısını kontrol et, ekrandaki hata satırlarını getir |
 | Docker Desktop'ta `freqtrade` sürekli **Restarting** | Bot açılırken hata alıyor; `10_demo_start.bat` çıktısını ve `demo_start` dosyasını getir |
-| Telegram'dan mesaj gelmiyor | `.env`'de `TELEGRAM_CHAT_ID` dolu mu? `01_connection_test.bat` ile kontrol et, sonra `11_demo_stop.bat` + `10_demo_start.bat` |
+| Telegram'dan mesaj gelmiyor | `.env`'de `TELEGRAM_CHAT_ID` dolu mu? `01_connection_test.bat` ile kontrol et, sonra `10_demo_start.bat` (botu yeniden başlatır) |
 | Telegram'da komutlara cevap yok | Bot kapalı olabilir: Docker Desktop'ta `freqtrade` **Running** mi? Değilse `10_demo_start.bat` |
 | "Bot çalışmıyor" uyarısı geldi | Bilgisayar uykuya mı geçti? Docker Desktop açık mı? `10_demo_start.bat` |
-| Raporda uptime %95'in altında | Güç ayarlarını ve Windows Update kullanım saatlerini kontrol et; raporu bana gönder |
+| Raporda uptime %95'in altında | Planlı durdurmalar zaten sayılmaz; kesintiler istem dışıdır. Güç ayarlarını ve Windows Update kullanım saatlerini kontrol et; raporu bana gönder |
+| Raporda `stalled` ya da `crash` kapanışı | Bot hata aldı ya da ana döngüsü durdu (Telegram `/stop` da `stalled` görünür). Raporu ve `demo_start` dosyalarını bana gönder |
 | Raporda "henüz işlem yok" | Normal olabilir: bot sadece kurallarına uyan fırsatta işlem açar. Birkaç gün bekle |
 | `demo_stop`: "kapanış kaydı yok" | Zararsız (kayıp yok); tekrarlarsa bana bildir |
 | Bilgisayar çok yavaşladı | Docker en fazla 6 GB RAM kullanır (`setup_wslconfig.bat`). Yine yavaşsa bana yaz |

@@ -79,15 +79,97 @@ def test_bot_stale_and_recovered(tmp_path):
     h = Harness(tmp_path, bot_heartbeat_stale_s=300)
     sid = bot_alive(h, T0)
     h.check(T0 + 301 * S)                                # son kalp atışı T0: 301 sn
-    assert h.kinds() == ["bot_stale"] and h.sent[0].startswith("UYARI: Bot çalışmıyor")
+    assert h.kinds() == ["bot_stale"] and h.sent[0].startswith("UYARI: Bot çalışmıyor veya durdurulmuş/takılmış")
+    # kalp atışı sadece ana döngü ilerlerken yazılır: Telegram /stop da bu uyarıyı verir
+    assert "/stop" in h.sent[0] and "/start" in h.sent[0]
     h.check(T0 + 400 * S)
     assert len(h.sent) == 1
     h.bot.heartbeat(sid, at_ms=T0 + 450 * S)
     h.check(T0 + 460 * S)
     assert h.kinds() == ["bot_stale", "bot_recovered"]
-    h.bot.stop_session(sid, at_ms=T0 + 500 * S)          # düzgün kapanış da 'çalışmıyor'
+    h.bot.stop_session(sid, kind="crash:OperationalError", at_ms=T0 + 500 * S)  # çökme: hemen uyarı
     h.check(T0 + 510 * S)
-    assert h.kinds()[-1] == "bot_stale" and "kapatıldı" in h.sent[-1]
+    assert h.kinds()[-1] == "bot_stale" and "beklenmedik şekilde kapandı" in h.sent[-1]
+    assert "crash:OperationalError" in h.sent[-1]
+
+
+def test_clean_stop_is_intentional_no_alert(tmp_path):
+    h = Harness(tmp_path, bot_heartbeat_stale_s=300)
+    sid = bot_alive(h, T0)
+    h.bot.stop_session(sid, kind="clean", at_ms=T0 + 100 * S)   # 11_demo_stop
+    h.check(T0 + 301 * S)
+    h.check(T0 + 3 * 3600 * S)
+    assert h.sent == [] and h.kinds() == []
+    # bayat kalp atışı uyarısı aktifken bilinçli durdurma: mesajsız kapanır, sonraki çökme yine uyarır
+    h2 = Harness(tmp_path / "b", bot_heartbeat_stale_s=300)
+    sid2 = bot_alive(h2, T0)
+    h2.check(T0 + 301 * S)
+    assert len(h2.sent) == 1
+    h2.bot.stop_session(sid2, kind="clean", at_ms=T0 + 320 * S)
+    h2.check(T0 + 330 * S)
+    assert len(h2.sent) == 1 and not h2.mon.bot.active
+    sid3 = h2.bot.start_session(at_ms=T0 + 400 * S)
+    h2.check(T0 + 410 * S)
+    assert len(h2.sent) == 1
+    h2.bot.stop_session(sid3, kind="stalled", at_ms=T0 + 420 * S)
+    h2.check(T0 + 430 * S)
+    assert len(h2.sent) == 2 and "stalled" in h2.sent[-1]
+
+
+def test_reload_waits_for_new_session(tmp_path):
+    h = Harness(tmp_path, bot_heartbeat_stale_s=300)
+    sid = bot_alive(h, T0)
+    h.bot.stop_session(sid, kind="reload", at_ms=T0 + 299 * S)  # /reload_config: yeni oturum birazdan
+    h.check(T0 + 301 * S)
+    assert h.sent == []
+    h.check(T0 + 600 * S)                                       # yeni oturum hiç gelmedi
+    assert len(h.sent) == 1 and "yeniden yüklendi" in h.sent[0]
+
+
+def test_failed_telegram_send_is_retried_until_delivered(tmp_path):
+    h = Harness(tmp_path, realert_minutes=180)
+    results = [False, False, True]
+    h.mon._send = lambda text: (h.sent.append(text), results.pop(0) if results else True)[1]
+    bot_alive(h, T0 + 300 * S)
+    h.status.weex.fail(T0 + 100 * S, "x")
+    h.check(T0 + 301 * S)                     # ilk deneme gitmedi (TelegramNotifier.send False döndü)
+    assert h.kinds() == ["weex_unreachable"] and h.mon.weex.pending == "down"
+    h.check(T0 + 331 * S)                     # 30 sn sonra tekrar: yine gitmedi
+    h.check(T0 + 361 * S)                     # 3 saat beklemeden üçüncü denemede gitti
+    assert len(h.sent) == 3 and all("WEEX'e ulaşılamıyor" in m for m in h.sent)
+    assert h.mon.weex.pending is None and h.mon.weex.last_alert_ms == T0 + 361 * S
+    h.check(T0 + 391 * S)
+    assert len(h.sent) == 3                   # gittikten sonra tekrar yok
+    assert h.kinds() == ["weex_unreachable"]  # olay bir kez yazıldı
+
+
+def test_undelivered_alert_replaced_by_recovery_message(tmp_path):
+    h = Harness(tmp_path)
+    ok = {"v": False}
+    h.mon._send = lambda text: (h.sent.append(text), ok["v"])[1]
+    bot_alive(h, T0 + 300 * S)
+    h.status.weex.fail(T0 + 100 * S, "x")
+    h.check(T0 + 301 * S)
+    h.status.weex.ok(T0 + 320 * S)
+    ok["v"] = True
+    h.check(T0 + 331 * S)
+    assert h.sent[-1].startswith("DÜZELDİ: WEEX") and h.mon.weex.pending is None
+
+
+def test_repeated_task_failures_alert_and_recover(tmp_path):
+    h = Harness(tmp_path, task_alert_failures=3)
+    bot_alive(h, T0 + 400 * S)
+    for i in range(2):
+        h.status.job_fail("binance_ws", T0 + i * S, "OperationalError: disk I/O error")
+    h.check(T0 + 401 * S)
+    assert h.sent == []
+    h.status.job_fail("binance_ws", T0 + 3 * S, "OperationalError: disk I/O error")
+    h.check(T0 + 402 * S)
+    assert h.kinds() == ["task_failing"] and "'binance_ws' 3 kez" in h.sent[0] and "disk I/O" in h.sent[0]
+    h.status.job_ok("binance_ws", T0 + 500 * S)
+    h.bot.heartbeat(h.bot.sessions()[-1].id, at_ms=T0 + 500 * S)
+    h.check(T0 + 501 * S)
+    assert h.kinds() == ["task_failing", "task_recovered"] and h.sent[-1].startswith("DÜZELDİ: Kaydedici")
 
 
 def test_binance_418_alerts_immediately_and_recovers(tmp_path):

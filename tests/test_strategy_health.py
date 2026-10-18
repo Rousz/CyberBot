@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -144,6 +144,107 @@ def test_bot_start_records_uptime_and_cleanup_closes_it(strategy, tmp_path):
     strategy.ft_bot_cleanup()
     assert store.sessions()[-1].stop_kind == "clean"
     strategy.ft_bot_cleanup()  # ikinci çağrı bozmaz
+
+
+def stop_kinds(tmp_path) -> list[str | None]:
+    return [x.stop_kind for x in uptime.UptimeStore(tmp_path / "data" / "uptime.sqlite", "freqtrade").sessions()]
+
+
+def test_cleanup_records_crash_kind_for_abnormal_exit(strategy, tmp_path):
+    # start_trading: try: worker.run() finally: worker.exit() -> ... -> ft_bot_cleanup
+    strategy.bot_start()
+    with pytest.raises(RuntimeError):
+        try:
+            raise RuntimeError("WEEX patladı")
+        finally:
+            strategy.ft_bot_cleanup()
+    assert stop_kinds(tmp_path) == ["crash:RuntimeError"]
+    # docker stop / Ctrl-C (SIGTERM -> KeyboardInterrupt) düzenli kapanıştır
+    strategy.bot_start()
+    with pytest.raises(KeyboardInterrupt):
+        try:
+            raise KeyboardInterrupt
+        finally:
+            strategy.ft_bot_cleanup()
+    strategy.bot_start()
+    strategy.ft_bot_cleanup()  # istisnasız (ör. /reload_config) -> clean
+    assert stop_kinds(tmp_path) == ["crash:RuntimeError", "clean", "clean"]
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    now = {"ms": T0}
+    monkeypatch.setattr(uptime, "now_ms", lambda: now["ms"])
+    return now
+
+
+def test_heartbeat_only_while_main_loop_progresses(strategy, tmp_path, clock):
+    strategy.config["cyberbot"]["strategy"]["health"]["enabled"] = False  # sadece kalp atışı
+    strategy.bot_start()
+    hb = strategy._heartbeat
+    store = uptime.UptimeStore(tmp_path / "data" / "uptime.sqlite", "freqtrade")
+    first = hb.session_id
+    # başlangıç payı: ilk döngü (veri indirme) gelmeden de kalp atışı yazılır
+    clock["ms"] = T0 + 10 * 60_000
+    hb.beat()
+    assert store.last_heartbeat_ms() == T0 + 10 * 60_000
+    clock["ms"] = T0 + 16 * 60_000  # 15 dk geçti, hâlâ döngü yok -> takıldı
+    hb.beat()
+    assert hb.stalled and store.last_heartbeat_ms() == T0 + 10 * 60_000
+    # döngü ilerliyor
+    clock["ms"] = T0 + 17 * 60_000
+    strategy.bot_loop_start(dt(clock["ms"]))
+    hb.beat()
+    assert not hb.stalled and hb.session_id != first
+    assert store.sessions()[0].stop_kind == "stalled"
+    # bot STOPPED durumuna düştü: bot_loop_start artık çağrılmıyor
+    for minute in (18, 19, 20):
+        clock["ms"] = T0 + minute * 60_000
+        hb.beat()
+    assert not hb.stalled and store.last_heartbeat_ms() == T0 + 20 * 60_000  # 3 aralık içinde
+    clock["ms"] = T0 + 21 * 60_000
+    hb.beat()
+    assert hb.stalled and store.last_heartbeat_ms() == T0 + 20 * 60_000
+    # takılıyken kapanış: güncel oturum son kalp atışı + aralıkta "stalled" biter
+    clock["ms"] = T0 + 60 * 60_000
+    strategy.ft_bot_cleanup()
+    second = store.sessions()[-1]
+    assert second.id == hb.session_id
+    assert second.stop_kind == "stalled" and second.stopped_ms == T0 + 21 * 60_000
+
+
+def test_cleanup_closes_current_session_after_stall(strategy, tmp_path, clock):
+    strategy.config["cyberbot"]["strategy"]["health"]["enabled"] = False
+    strategy.bot_start()
+    hb = strategy._heartbeat
+    clock["ms"] = T0 + 16 * 60_000
+    hb.beat()  # takıldı
+    strategy.bot_loop_start(dt(clock["ms"]))
+    hb.beat()  # yeni oturum
+    strategy.ft_bot_cleanup()
+    kinds = stop_kinds(tmp_path)
+    assert kinds == ["stalled", "clean"]  # yeni (güncel) oturum da kapandı
+
+
+def test_restart_clears_stale_exchange_lock_and_closes_down_event(strategy, tmp_path):
+    # önceki süreç: WEEX kesintisi sırasında kapandı (kilit DB'de, "düzeldi" hiç gelmedi)
+    store = uptime.UptimeStore(tmp_path / "data" / "uptime.sqlite", "freqtrade")
+    store.add_event("exchange_down", "BTC 5m son mum ...")
+    until = datetime.now(timezone.utc) + timedelta(minutes=10)
+    strategy.lock_pair("*", until=until, reason="exchange_down")
+    assert PairLocks.is_global_lock()
+    strategy.bot_start()
+    assert not PairLocks.is_global_lock()
+    assert [e.kind for e in store.events()] == ["exchange_down", "exchange_recovered"]
+    strategy.bot_start()  # son olay zaten recovered: tekrar yazılmaz
+    assert [e.kind for e in store.events()] == ["exchange_down", "exchange_recovered"]
+
+
+def test_backtest_start_keeps_locks_and_writes_nothing(strategy, tmp_path):
+    strategy.dp.runmode = RunMode.BACKTEST
+    strategy.lock_pair("*", until=datetime.now(timezone.utc) + timedelta(minutes=10), reason="exchange_down")
+    strategy.bot_start()
+    assert PairLocks.is_global_lock() and not (tmp_path / "data" / "uptime.sqlite").exists()
 
 
 def test_bot_start_rejects_target_rr_below_min_rr(strategy):

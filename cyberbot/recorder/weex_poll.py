@@ -24,6 +24,8 @@ from cyberbot.recorder.monitor import SourceHealth, Status
 logger = logging.getLogger(__name__)
 
 BAR_MS = 300_000
+FUNDING_SAFETY_MS = 60_000          # funding avail_ms = ödeme + gecikme (2 dk) + 60 sn
+FUNDING_LIVE_WINDOW_MS = 30 * 60_000  # ödemeden bu kadar içinde çekilen satır "canlı" sayılır
 P_EXCHANGE_INFO = "/capi/v3/market/exchangeInfo"
 P_TICKER_24HR = "/capi/v3/market/ticker/24hr"
 P_PREMIUM = "/capi/v3/market/premiumIndex"
@@ -78,7 +80,17 @@ def parse_oi(data: Any, symbol: str, recv_ms: int, mark: float | None) -> dict |
     return None
 
 
-def parse_funding(rows: Any, symbol: str, recv_ms: int) -> list[dict]:
+def funding_avail_ms(funding_ms: int, recv_ms: int, delay_ms: int) -> int:
+    """Canlıda çekilen satır (ödemeden en fazla 30 dk sonra): max(recv_ms, ödeme + gecikme + 60 sn),
+    yani kaydedicinin gerçekten elinde olduğu andan önce değil. Sonradan toplu çekilen geçmiş satır:
+    deterministik ödeme + gecikme + 60 sn (Binance /futures/data kuralı gibi)."""
+    deterministic = funding_ms + delay_ms + FUNDING_SAFETY_MS
+    if recv_ms - funding_ms <= FUNDING_LIVE_WINDOW_MS:
+        return max(recv_ms, deterministic)
+    return deterministic
+
+
+def parse_funding(rows: Any, symbol: str, recv_ms: int, delay_ms: int = 120_000) -> list[dict]:
     out = []
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict) or row.get("symbol", symbol) != symbol:
@@ -87,7 +99,8 @@ def parse_funding(rows: Any, symbol: str, recv_ms: int) -> list[dict]:
         if t is None or t > recv_ms:
             continue
         out.append({"symbol": symbol, "funding_ms": t, "rate": to_float(row.get("fundingRate")),
-                    "mark": to_float(row.get("markPrice")), "recv_ms": recv_ms, "avail_ms": t})
+                    "mark": to_float(row.get("markPrice")), "recv_ms": recv_ms,
+                    "avail_ms": funding_avail_ms(t, recv_ms, delay_ms)})
     return out
 
 

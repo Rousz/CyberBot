@@ -90,6 +90,7 @@ def test_strategy_loads_with_expected_settings(tmp_path):
     assert strat.timeframe == "5m" and strat.can_short and strat.startup_candle_count == 400
     assert strat.minimal_roi == {0: 100} and strat.stoploss == -0.30
     assert strat.use_custom_stoploss and strat.use_exit_signal and strat.process_only_new_candles
+    assert strat.use_custom_roi  # hedef (tp) ROI mekanizmasıyla: backtest'te mum içinde
 
 
 LEGIT = ["BTC", "ETH", "JUP", "SYRUP", "SUSHI", "USUAL", "1INCH", "API3", "C98", "L3", "1000PEPE", "1000SATS",

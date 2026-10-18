@@ -6,13 +6,19 @@ kullanılabildiği an; strateji sadece avail_ms <= mum kapanışı olan satırla
 - Binance /futures/data: ts_ms + period_ms + safety_ms (varsayılan 60 sn; deterministik,
   canlıda ve geçmiş doldurmada aynı)
 - WEEX anlık görüntüler (premium, OI): recv_ms
-- WEEX funding geçmişi: funding_ms
-- Likidasyon 1 dk kovaları: kova sonu (bucket_ms + 60000)
+- WEEX funding geçmişi: ödemeden kısa süre sonra (canlı) çekilen satır max(recv_ms,
+  funding_ms + gecikme + 60 sn); daha sonra toplu çekilen geçmiş satır deterministik
+  funding_ms + gecikme + 60 sn (Binance kuralı gibi). Tekrar çekilince ilk değer korunur.
+- Likidasyon 1 dk kovaları ve kapsama: ilk yazıldığı an, en erken kova sonu
+  (max(bucket_ms + 60000, yazma anı)); yeniden hesaplamada değer değişirse yazma anına ilerler.
 
 Likidasyon kovaları seyrektir: bn_liq_1m'de sadece likidasyon olan (sembol, dakika)
 satırları vardır. Her dakikanın WS kapsaması bn_liq_coverage_1m'dedir: satır yok ama
-kapsama > 0 ise o dakika likidasyon 0'dır; kapsama yoksa veri yoktur (NaN, 0 değil).
+kapsama > 0 ise o dakika likidasyon 0'dır; kapsama satırı yoksa veya 0 ise veri yoktur
+(NaN, 0 değil).
 Likidasyon akışı alt sınırdır: Binance sembol başına saniyede en fazla 1 emir yollar.
+bn_backfill_checked: Binance'e doldurma isteğiyle sorulup başarılı cevap alınan aralıklar
+(orada olmayan veri tekrar tekrar sorulmaz; 30 günden eskiler silinir).
 """
 
 from __future__ import annotations
@@ -110,6 +116,11 @@ CREATE TABLE IF NOT EXISTS fetch_log(
     used_weight INTEGER, low INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_fetch_log_ts ON fetch_log(ts_ms);
+CREATE TABLE IF NOT EXISTS bn_backfill_checked(
+    symbol TEXT NOT NULL, endpoint TEXT NOT NULL, start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL,
+    checked_ms INTEGER NOT NULL,
+    PRIMARY KEY(symbol, endpoint, start_ms)
+) WITHOUT ROWID;
 """
 
 # Binance /futures/data uç noktası -> {sütun: ham alan}. İlk sütun "veri var mı" anahtarıdır.
@@ -165,6 +176,27 @@ def parse_bn_rows(endpoint: str, symbol: str, raw: Any) -> list[tuple[int, dict[
     return out
 
 
+def subtract_ranges(ranges: list[tuple[int, int]], cut: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Yarı açık [a, b) aralıklarından cut aralıklarını çıkarır."""
+    out = []
+    cut = sorted(c for c in cut if c[1] > c[0])
+    for a, b in ranges:
+        pieces = [(a, b)]
+        for ca, cb in cut:
+            nxt = []
+            for pa, pb in pieces:
+                if cb <= pa or ca >= pb:
+                    nxt.append((pa, pb))
+                    continue
+                if ca > pa:
+                    nxt.append((pa, ca))
+                if cb < pb:
+                    nxt.append((cb, pb))
+            pieces = nxt
+        out.extend(pieces)
+    return out
+
+
 def coverage_per_bucket(intervals: Iterable[tuple[int, int]], start_ms: int, end_ms: int,
                         step_ms: int = MIN_MS) -> dict[int, float]:
     """Bağlantı aralıklarının birleşimi, her kovanın ne kadarını kaplıyor (0..1)."""
@@ -212,11 +244,12 @@ class DerivsDB:
 
     # --- genel upsert -------------------------------------------------------
 
-    def _upsert(self, table: str, pk: tuple[str, ...], rows: list[dict]) -> int:
+    def _upsert(self, table: str, pk: tuple[str, ...], rows: list[dict], keep: tuple[str, ...] = ()) -> int:
+        """keep: çakışmada eski değeri korunan sütunlar (ör. ilk avail_ms)."""
         if not rows:
             return 0
         cols = list(rows[0].keys())
-        updates = ", ".join(f"{c}=excluded.{c}" for c in cols if c not in pk)
+        updates = ", ".join(f"{c}=excluded.{c}" for c in cols if c not in pk and c not in keep)
         sql = (f"INSERT INTO {table}({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)}) "
                f"ON CONFLICT({', '.join(pk)}) DO UPDATE SET {updates}")
         with self.conn:
@@ -249,6 +282,56 @@ class DerivsDB:
         with self.conn:
             self.conn.executemany(sql, args)
         return [ts for ts, _ in parsed]
+
+    def bn_missing(self, endpoint: str, period: str, symbols: list[str], start_ms: int,
+                   end_ms: int) -> dict[str, list[tuple[int, int]]]:
+        """[start_ms, end_ms) içinde (periyot ızgarası) bu uç noktanın verisi olmayan yarı açık
+        aralıklar, sembol başına. Daha önce doldurma isteğiyle sorulmuş (Binance'te olmayan)
+        aralıklar (bn_backfill_checked) düşülür."""
+        period_ms = PERIOD_MS[period]
+        start_ms += -start_ms % period_ms
+        if end_ms <= start_ms or not symbols:
+            return {}
+        key_col = next(iter(BN_ENDPOINTS[endpoint]))
+        base = (f"FROM bn_futures_data WHERE period=? AND {key_col} IS NOT NULL AND ts_ms >= ? AND ts_ms < ?")
+        args = (period, start_ms, end_ms)
+        bounds = {s: (lo, hi) for s, lo, hi in
+                  self.query(f"SELECT symbol, MIN(ts_ms), MAX(ts_ms) {base} GROUP BY symbol", args)}
+        holes: dict[str, list[tuple[int, int]]] = {}
+        for s, prev, ts in self.query(
+                f"SELECT symbol, prev, ts_ms FROM (SELECT symbol, ts_ms, LAG(ts_ms) OVER (PARTITION BY symbol"
+                f" ORDER BY ts_ms) AS prev {base}) WHERE prev IS NOT NULL AND ts_ms - prev > ?", (*args, period_ms)):
+            holes.setdefault(s, []).append((prev + period_ms, ts))
+        checked: dict[str, list[tuple[int, int]]] = {}
+        for s, a, b in self.query("SELECT symbol, start_ms, end_ms FROM bn_backfill_checked WHERE endpoint=?"
+                                  " AND end_ms > ? AND start_ms < ?", (endpoint, start_ms, end_ms)):
+            checked.setdefault(s, []).append((a, b))
+        out = {}
+        for s in symbols:
+            if s in bounds:
+                lo, hi = bounds[s]
+                missing = [(start_ms, lo), *holes.get(s, []), (hi + period_ms, end_ms)]
+            else:
+                missing = [(start_ms, end_ms)]
+            missing = [(a + (-a % period_ms), b) for a, b in subtract_ranges(missing, checked.get(s, []))]
+            missing = [(a, b) for a, b in missing if b > a]
+            if missing:
+                out[s] = missing
+        return out
+
+    def bn_mark_checked(self, symbol: str, endpoint: str, start_ms: int, end_ms: int, now_ms: int) -> None:
+        """Doldurma isteği [start_ms, end_ms) için başarılı cevap aldı: veri gelmeyen kısım
+        Binance'te yok sayılır, tekrar sorulmaz."""
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO bn_backfill_checked(symbol, endpoint, start_ms, end_ms, checked_ms) VALUES (?, ?, ?, ?, ?)"
+                " ON CONFLICT(symbol, endpoint, start_ms) DO UPDATE SET end_ms=MAX(end_ms, excluded.end_ms),"
+                " checked_ms=excluded.checked_ms", (symbol, endpoint, start_ms, end_ms, now_ms))
+
+    def prune_backfill_checked(self, before_ms: int) -> int:
+        with self.conn:
+            cur = self.conn.execute("DELETE FROM bn_backfill_checked WHERE end_ms < ?", (before_ms,))
+        return cur.rowcount
 
     def bn_last_ts(self, period: str) -> dict[tuple[str, str], int]:
         """{(sembol, uç nokta): en yeni ts_ms} (o uç noktanın verisi olan satırlar)."""
@@ -287,13 +370,13 @@ class DerivsDB:
             self.conn.execute("UPDATE ws_sessions SET close_ms=?, reason=? WHERE conn_id=? AND close_ms IS NULL",
                               (close_ms, reason[:200], conn_id))
 
-    def ws_close_dangling(self, close_ms: int | None) -> int:
-        """Önceki çalışmadan açık kalmış (sert kapanış) oturumları kapatır. close_ms bilinmiyorsa
-        açılış anı kullanılır (kapsama abartılmaz)."""
+    def ws_close_dangling(self, close_ms: int | None, reason: str = "crash") -> int:
+        """Açık kalmış oturumları kapatır (önceki çalışmanın sert kapanışı veya WS işinin hatası).
+        close_ms bilinmiyorsa açılış anı kullanılır (kapsama abartılmaz)."""
         with self.conn:
             cur = self.conn.execute(
-                "UPDATE ws_sessions SET close_ms=MAX(open_ms, COALESCE(?, open_ms)), reason='crash'"
-                " WHERE close_ms IS NULL", (close_ms,))
+                "UPDATE ws_sessions SET close_ms=MAX(open_ms, COALESCE(?, open_ms)), reason=?"
+                " WHERE close_ms IS NULL", (close_ms, reason[:200]))
         return cur.rowcount
 
     def ws_open_sessions(self) -> int:
@@ -309,23 +392,41 @@ class DerivsDB:
 
     def aggregate_liq_1m(self, start_ms: int, end_ms: int, now_ms: int) -> int:
         """[start_ms, end_ms) arasındaki kapanmış dakikaları yeniden hesaplar (idempotent).
-        SELL = long pozisyon likide edildi, BUY = short likide edildi."""
+        SELL = long pozisyon likide edildi, BUY = short likide edildi.
+        avail_ms = ilk yazıldığı an (en erken kova sonu); değer değişirse now_ms'e ilerler.
+        Kapsaması sonradan düşen dakikanın (ör. sessiz bağlantı geriye dönük kapatıldı) satırı
+        da güncellenir (kapsama 0 = veri yok)."""
         start_ms -= start_ms % MIN_MS
         end_ms = min(end_ms, now_ms - now_ms % MIN_MS)
         if end_ms <= start_ms:
             return 0
         cov = coverage_per_bucket(self.ws_intervals(start_ms, end_ms, now_ms), start_ms, end_ms)
-        cov_rows = [{"bucket_ms": b, "coverage": c, "avail_ms": b + MIN_MS} for b, c in cov.items() if c > 0]
-        self._upsert("bn_liq_coverage_1m", ("bucket_ms",), cov_rows)
+        existing = {b for (b,) in self.query("SELECT bucket_ms FROM bn_liq_coverage_1m WHERE bucket_ms >= ?"
+                                             " AND bucket_ms < ?", (start_ms, end_ms))}
+        cov_rows = [(b, c, max(b + MIN_MS, now_ms)) for b, c in cov.items() if c > 0 or b in existing]
+        if cov_rows:
+            with self.conn:
+                self.conn.executemany(
+                    "INSERT INTO bn_liq_coverage_1m(bucket_ms, coverage, avail_ms) VALUES (?, ?, ?)"
+                    " ON CONFLICT(bucket_ms) DO UPDATE SET coverage=excluded.coverage,"
+                    " avail_ms=CASE WHEN bn_liq_coverage_1m.coverage IS excluded.coverage"
+                    " THEN bn_liq_coverage_1m.avail_ms ELSE excluded.avail_ms END", cov_rows)
         agg = self.query(
             "SELECT symbol, (trade_ms / 60000) * 60000 AS b,"
             " SUM(CASE WHEN side='SELL' THEN notional ELSE 0 END), SUM(CASE WHEN side='BUY' THEN notional ELSE 0 END),"
             " SUM(side='SELL'), SUM(side='BUY'), MAX(notional)"
             " FROM bn_liquidations WHERE trade_ms >= ? AND trade_ms < ? GROUP BY symbol, b", (start_ms, end_ms))
-        rows = [{"symbol": s, "bucket_ms": b, "long_liq_usd": lu or 0.0, "short_liq_usd": su or 0.0,
-                 "n_long": nl or 0, "n_short": ns or 0, "max_usd": mx, "coverage": cov.get(b, 0.0),
-                 "avail_ms": b + MIN_MS} for s, b, lu, su, nl, ns, mx in agg]
-        self._upsert("bn_liq_1m", ("symbol", "bucket_ms"), rows)
+        rows = [(s, b, lu or 0.0, su or 0.0, nl or 0, ns or 0, mx, cov.get(b, 0.0), max(b + MIN_MS, now_ms))
+                for s, b, lu, su, nl, ns, mx in agg]
+        values = ("long_liq_usd", "short_liq_usd", "n_long", "n_short", "max_usd", "coverage")
+        same = " AND ".join(f"bn_liq_1m.{c} IS excluded.{c}" for c in values)
+        if rows:
+            with self.conn:
+                self.conn.executemany(
+                    f"INSERT INTO bn_liq_1m(symbol, bucket_ms, {', '.join(values)}, avail_ms)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(symbol, bucket_ms) DO UPDATE SET"
+                    f" {', '.join(f'{c}=excluded.{c}' for c in values)},"
+                    f" avail_ms=CASE WHEN {same} THEN bn_liq_1m.avail_ms ELSE excluded.avail_ms END", rows)
         return len(rows)
 
     # --- WEEX ---------------------------------------------------------------
@@ -337,7 +438,7 @@ class DerivsDB:
         return self._upsert("weex_oi", ("symbol", "bucket_ms"), rows)
 
     def upsert_weex_funding(self, rows: list[dict]) -> int:
-        return self._upsert("weex_funding_hist", ("symbol", "funding_ms"), rows)
+        return self._upsert("weex_funding_hist", ("symbol", "funding_ms"), rows, keep=("avail_ms", "recv_ms"))
 
     def weex_last_funding(self) -> dict[str, int]:
         return dict(self.query("SELECT symbol, MAX(funding_ms) FROM weex_funding_hist GROUP BY symbol"))
@@ -377,6 +478,26 @@ class DerivsDB:
                 " VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(source, symbol, start_ms) DO UPDATE SET"
                 " end_ms=MAX(gaps.end_ms, excluded.end_ms), reason=excluded.reason, state=excluded.state",
                 (source, symbol or ALL, start_ms, end_ms, reason, now_ms, state))
+
+    def open_gap(self, source: str, symbol: str, start_ms: int, end_ms: int, reason: str, now_ms: int) -> None:
+        """Sembolün 'open' boşluğu varsa onu genişletir, yoksa yeni 'open' boşluk yazar
+        (saatlik yeniden planlama aynı eksik için tekrar satır açmaz)."""
+        if end_ms <= start_ms:
+            return
+        row = self.query("SELECT id FROM gaps WHERE source=? AND symbol=? AND state='open' ORDER BY start_ms LIMIT 1",
+                         (source, symbol))
+        if not row:
+            self.add_gap(source, symbol, start_ms, end_ms, reason, "open", now_ms)
+            return
+        try:
+            with self.conn:
+                self.conn.execute("UPDATE gaps SET start_ms=MIN(start_ms, ?), end_ms=MAX(end_ms, ?) WHERE id=?",
+                                  (start_ms, end_ms, row[0][0]))
+        except sqlite3.IntegrityError:  # aynı başlangıçlı başka satır var: genişletmeden bırak
+            pass
+
+    def open_gap_symbols(self, source: str) -> set[str]:
+        return {s for (s,) in self.query("SELECT DISTINCT symbol FROM gaps WHERE source=? AND state='open'", (source,))}
 
     def set_gap_state(self, source: str, symbol: str, from_state: str, to_state: str) -> int:
         with self.conn:

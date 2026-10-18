@@ -1,15 +1,20 @@
 """Demo testi başlatma / durdurma kontrolü (10_demo_start.bat, 11_demo_stop.bat çağırır).
 
-    python -m cyberbot.demo_status start --since <utc_ms>
-    python -m cyberbot.demo_status stop  --since <utc_ms>
+    python -m cyberbot.demo_status mark start   # "docker compose up" ÖNCESİ
+    python -m cyberbot.demo_status start        # "docker compose up" SONRASI
+    python -m cyberbot.demo_status mark stop    # "docker compose stop" ÖNCESİ
+    python -m cyberbot.demo_status stop         # "docker compose stop" SONRASI
 
-tools container'ında /data volume'u ile çalışır; sadece uptime veritabanını (salt okunur)
-ve log dosyalarını okur, borsalara bağlanmaz.
+tools container'ında /data volume'u ile çalışır; uptime veritabanını (salt okunur) ve log
+dosyalarını okur, borsalara bağlanmaz. Tek yazdığı küçük işaret dosyası /data/demo_status_mark.json.
 
+Saat karşılaştırması YOK: Windows saati ile Docker (WSL2) saati uykudan sonra dakikalarca
+ayrışabilir. Bunun yerine "mark" adımı komuttan önce en son oturum kimliklerini kaydeder:
 start: "docker compose up" sonrası en fazla ~120 sn bekler: bot (freqtrade) ve kaydedici
-(recorder) için since'ten sonra açılmış (ya da since'ten sonra kalp atışı gelen, zaten
-çalışan) bir oturum arar. Olmazsa son log satırlarını (gizli bilgiler maskeli) rapora ekler.
-stop: "docker compose stop" sonrası iki oturumun da temiz kapanış kaydı yazdığını doğrular.
+(recorder) için işaretten SONRA açılmış (kimliği daha büyük) ve kalp atışı taze bir oturum
+arar. Eski oturum hâlâ çalışıyorsa bu HATA'dır (yeniden başlatılmamış = eski kod/ayar).
+Olmazsa son log satırlarını (gizli bilgiler maskeli) rapora ekler.
+stop: "docker compose stop" sonrası işaretteki oturumların temiz kapanış kaydı yazdığını doğrular.
 
 Özet: reports/demo_start_<UTC>.txt / reports/demo_stop_<UTC>.txt
 """
@@ -17,6 +22,7 @@ stop: "docker compose stop" sonrası iki oturumun da temiz kapanış kaydı yazd
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sqlite3
@@ -39,7 +45,8 @@ START_TIMEOUT_S = 120
 STOP_TIMEOUT_S = 30
 POLL_S = 5
 SETTLE_S = 15  # oturum bulunduktan sonra hemen çökmediğini görmek için
-CLOCK_SKEW_MS = 60_000  # Windows saati (since) ile container saati arasındaki olası fark
+MARK_FILE = "demo_status_mark.json"
+MARK_MAX_AGE_MS = 30 * 60_000  # bundan eski işaret kullanılmaz (aynı container saatiyle ölçülür)
 FRESH_MS = HEARTBEAT_INTERVAL_S * 1000 * 2 + 30_000  # kalp atışı en fazla bu kadar eski olabilir
 TAIL_LINES = 30
 
@@ -178,39 +185,129 @@ def newest(sessions: list[Session]) -> Session | None:
     return max(sessions, key=lambda s: (s.started_ms, s.id)) if sessions else None
 
 
-def classify_start(sessions: list[Session], since_ms: int, now_ms: int) -> State:
-    s = newest(sessions)
+def is_fresh(s: Session, now_ms: int) -> bool:
+    return s.stopped_ms is None and now_ms - s.last_heartbeat_ms <= FRESH_MS
+
+
+def classify_start(sessions: list[Session], after_id: int, now_ms: int) -> State:
+    """after_id: "mark start" anındaki en büyük oturum kimliği; sadece ondan sonra açılan sayılır."""
+    new = [s for s in sessions if s.id > after_id]
+    s = newest(new)
     if s is None:
-        return State(FAIL, "none", "henüz hiç oturum kaydı yok (açılış sürüyor ya da açılırken hata oldu)")
+        old = newest(sessions)
+        if old is not None and is_fresh(old, now_ms):
+            return State(FAIL, "running", f"eski oturum ({fmt_both(from_ms(old.started_ms))}) hâlâ çalışıyor, "
+                                          "yeniden başlatılmadı – güncel kod/ayar ve /stop sıfırlaması uygulanmadı",
+                         old)
+        return State(FAIL, "none", "başlatma komutundan sonra yeni oturum açılmadı "
+                                   "(açılış sürüyor ya da açılırken hata oldu)", old)
     age = now_ms - s.last_heartbeat_ms
-    if s.stopped_ms is None and age <= FRESH_MS:
-        if s.started_ms >= since_ms - CLOCK_SKEW_MS:
-            return State(OK, "new", f"yeni oturum {fmt_both(from_ms(s.started_ms))} açıldı, "
-                                    f"son kalp atışı {fmt_age(age)} önce", s)
-        if s.last_heartbeat_ms > since_ms:
-            return State(OK, "running", f"zaten çalışıyordu ({fmt_both(from_ms(s.started_ms))} oturumu, "
-                                        f"yeniden başlatılmadı); son kalp atışı {fmt_age(age)} önce", s)
-        return State(FAIL, "running", f"eski oturum ({fmt_both(from_ms(s.started_ms))}) var ama başlatma "
-                                      "komutundan sonra kalp atışı gelmedi", s)
     if s.stopped_ms is not None:
-        return State(FAIL, "stopped", f"son oturum {fmt_both(from_ms(s.stopped_ms))} kapandı "
-                                      f"({s.stop_kind or '?'}); yeni oturum açılmadı", s)
-    return State(FAIL, "stale", f"son kalp atışı {fmt_age(age)} önce – çalışmıyor ya da çöktü", s)
+        return State(FAIL, "stopped", f"yeni oturum açıldı ama {fmt_both(from_ms(s.stopped_ms))} kapandı "
+                                      f"({s.stop_kind or '?'})", s)
+    if age > FRESH_MS:
+        return State(FAIL, "stale", f"son kalp atışı {fmt_age(age)} önce – çalışmıyor ya da çöktü", s)
+    return State(OK, "new", f"yeni oturum {fmt_both(from_ms(s.started_ms))} açıldı, "
+                            f"son kalp atışı {fmt_age(age)} önce", s)
 
 
-def classify_stop(sessions: list[Session], since_ms: int, now_ms: int) -> State:
+def classify_stop(sessions: list[Session], before: dict | None, now_ms: int) -> State:
+    """before: "mark stop" anında bu bileşenin en yeni oturumu ({id, stopped, fresh}); yoksa None."""
     s = newest(sessions)
     if s is None:
         return State(WARN, "none", "hiç oturum kaydı yok (hiç çalışmamış)")
+    same = before is not None and before.get("id") == s.id
+    if same and before.get("stopped"):
+        return State(WARN, "already", f"zaten durmuştu: {fmt_both(from_ms(s.stopped_ms or s.last_heartbeat_ms))} "
+                                      f"({s.stop_kind or '?'})", s)
     if s.stopped_ms is None:
+        if same and not before.get("fresh"):
+            return State(WARN, "dead", "durdurmadan önce zaten çalışmıyordu: son kalp atışı "
+                                       f"{fmt_both(from_ms(s.last_heartbeat_ms))}, kapanış kaydı yok "
+                                       "(elektrik/çökme/takılma) – raporda kesinti sayılır", s)
         return State(FAIL, "unclean", f"kapanış kaydı yok: son kalp atışı {fmt_both(from_ms(s.last_heartbeat_ms))} – "
                                       "Docker süresi içinde kapanmadı ve zorla durduruldu ya da daha önce çökmüştü", s)
     duration = fmt_age(s.stopped_ms - s.started_ms)
-    if s.stopped_ms < since_ms - CLOCK_SKEW_MS:
-        return State(WARN, "already", f"zaten durmuştu: {fmt_both(from_ms(s.stopped_ms))} ({s.stop_kind or '?'})", s)
     if (s.stop_kind or "") != "clean":
         return State(WARN, "other", f"kapandı ama kapanış türü '{s.stop_kind}' ({fmt_both(from_ms(s.stopped_ms))})", s)
     return State(OK, "clean", f"temiz kapandı {fmt_both(from_ms(s.stopped_ms))}; oturum süresi {duration}", s)
+
+
+# --------------------------------------------------------------------------
+# İşaret (komuttan önceki durum; saat karşılaştırması yerine oturum kimlikleri)
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class Mark:
+    action: str  # start / stop
+    created_ms: int  # container saati (sadece gösterim ve yaş kontrolü)
+    max_id: int  # o anki en büyük oturum kimliği (tüm bileşenler)
+    last: dict  # bileşen -> {"id", "stopped", "fresh"} (o anki en yeni oturum)
+
+
+def mark_path() -> Path:
+    return paths.data_dir() / MARK_FILE
+
+
+def take_mark(action: str, uptime_path: Path, now_ms: int) -> Mark:
+    sessions = read_sessions(uptime_path)  # sqlite3.Error yükselir: işaretsiz devam edilmez
+    max_id = max((s.id for items in sessions.values() for s in items), default=0)
+    last = {}
+    for comp in COMPONENTS:
+        s = newest(sessions.get(comp, []))
+        if s is not None:
+            last[comp] = {"id": s.id, "stopped": s.stopped_ms is not None, "fresh": is_fresh(s, now_ms)}
+    return Mark(action, now_ms, max_id, last)
+
+
+def write_mark(mark: Mark, path: Path) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(mark.__dict__), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def read_mark(path: Path, action: str, now_ms: int) -> tuple[Mark | None, str]:
+    """(işaret, sorun). Yok/bozuk/başka komutun/eski işaret kullanılmaz; dosya okununca silinir."""
+    path = Path(path)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None, "işaret dosyası yok"
+    except (OSError, ValueError) as exc:
+        return None, f"işaret dosyası okunamadı ({type(exc).__name__})"
+    finally:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+    try:
+        mark = Mark(str(raw["action"]), int(raw["created_ms"]), int(raw["max_id"]), dict(raw.get("last") or {}))
+    except (KeyError, TypeError, ValueError):
+        return None, "işaret dosyası bozuk"
+    if mark.action != action:
+        return None, f"işaret '{mark.action}' komutuna ait"
+    if not 0 <= now_ms - mark.created_ms <= MARK_MAX_AGE_MS:
+        return None, f"işaret eski ({fmt_age(now_ms - mark.created_ms)})"
+    return mark, ""
+
+
+def run_mark(action: str, *, clock: Clock | None = None, uptime_path: Path | None = None,
+             path: Path | None = None) -> int:
+    clock = clock or Clock()
+    uptime_path = uptime_path or paths.uptime_db()
+    path = path or mark_path()
+    try:
+        mark = take_mark(action, uptime_path, clock.now_ms())
+        write_mark(mark, path)
+    except (sqlite3.Error, OSError) as exc:
+        print(f"HATA: komut öncesi durum kaydedilemedi: {type(exc).__name__}: {str(exc)[:200]}")
+        return 1
+    running = [LABELS[c] for c, v in mark.last.items() if v.get("fresh")]
+    print(f"Komut öncesi durum kaydedildi (son oturum no {mark.max_id}; çalışan: {', '.join(running) or 'yok'}).")
+    return 0
 
 
 # --------------------------------------------------------------------------
@@ -279,16 +376,28 @@ START_HINTS = {
 }
 
 
-def run_start(since_ms: int, *, timeout_s: float = START_TIMEOUT_S, poll_s: float = POLL_S,
-              settle_s: float = SETTLE_S, clock: Clock | None = None, uptime_path: Path | None = None,
-              logs_dir: Path | None = None, reports_dir: Path | None = None, env: dict | None = None) -> int:
+RUNNING_HINT = [
+    "Eski oturum durdurulup yeniden açılmadı: güncellenmiş kod/ayar yüklenmedi, Telegram /stop sıfırlanmadı.",
+    "11_demo_stop.bat, sonra 10_demo_start.bat çalıştır; yine olursa bu dosyayı bana getir.",
+]
+
+
+def run_start(mark: Mark | None, *, mark_problem: str = "", timeout_s: float = START_TIMEOUT_S,
+              poll_s: float = POLL_S, settle_s: float = SETTLE_S, clock: Clock | None = None,
+              uptime_path: Path | None = None, logs_dir: Path | None = None, reports_dir: Path | None = None,
+              env: dict | None = None) -> int:
     clock = clock or Clock()
     env = dict(os.environ) if env is None else env
     uptime_path = uptime_path or paths.uptime_db()
     logs_dir = logs_dir or paths.repo_dir() / "user_data" / "logs"
     rep = new_report("Demo test başlatma kontrolü", "demo_start", reports_dir, env)
+    if mark is None:
+        rep.add("Genel", "baslatma_oncesi", FAIL, f"başlatma öncesi durum kaydı kullanılamadı ({mark_problem or '?'}); "
+                "yeni oturum ayırt edilemez – 10_demo_start.bat'ı tekrar çalıştır")
+        return rep.finish()
     print(f"Bot ve kaydedicinin açılması bekleniyor (en fazla {timeout_s:.0f} sn)...")
-    rep.add("Genel", "baslatma_zamani", INFO, fmt_both(from_ms(since_ms)))
+    rep.add("Genel", "baslatma_zamani", INFO, f"{fmt_both(from_ms(mark.created_ms))} (Docker saati); "
+            f"bundan sonra açılan oturumlar aranıyor (no > {mark.max_id})")
     telegram = bool((env.get("TELEGRAM_TOKEN") or "").strip() and (env.get("TELEGRAM_CHAT_ID") or "").strip())
     rep.add("Genel", "telegram", INFO if telegram else WARN,
             "açık: bot Telegram'dan mesaj atar ve komut alır" if telegram else
@@ -300,7 +409,7 @@ def run_start(since_ms: int, *, timeout_s: float = START_TIMEOUT_S, poll_s: floa
     while True:
         sessions = safe_read_sessions(uptime_path, db_errors)
         now = clock.now_ms()
-        states = {c: classify_start(sessions.get(c, []), since_ms, now) for c in COMPONENTS}
+        states = {c: classify_start(sessions.get(c, []), mark.max_id, now) for c in COMPONENTS}
         if all(s.done for s in states.values()) or now >= deadline:
             break
         clock.sleep(poll_s)
@@ -320,7 +429,8 @@ def run_start(since_ms: int, *, timeout_s: float = START_TIMEOUT_S, poll_s: floa
     failed = [c for c in COMPONENTS if states[c].status == FAIL]
     if failed:
         for comp in failed:
-            rep.section(f"Açıklama – {LABELS[comp]}", START_HINTS[comp])
+            rep.section(f"Açıklama – {LABELS[comp]}",
+                        RUNNING_HINT if states[comp].kind == "running" else START_HINTS[comp])
         add_log_tails(rep, logs_dir, failed)
         rep.finding("Ne yapmalı", "Bu özet dosyasını (reports klasöründe) bana getir; Docker Desktop açık kalsın.")
     else:
@@ -328,15 +438,20 @@ def run_start(since_ms: int, *, timeout_s: float = START_TIMEOUT_S, poll_s: floa
     return rep.finish()
 
 
-def run_stop(since_ms: int, *, timeout_s: float = STOP_TIMEOUT_S, poll_s: float = POLL_S,
-             clock: Clock | None = None, uptime_path: Path | None = None, logs_dir: Path | None = None,
-             reports_dir: Path | None = None, env: dict | None = None) -> int:
+def run_stop(mark: Mark | None, *, mark_problem: str = "", timeout_s: float = STOP_TIMEOUT_S,
+             poll_s: float = POLL_S, clock: Clock | None = None, uptime_path: Path | None = None,
+             logs_dir: Path | None = None, reports_dir: Path | None = None, env: dict | None = None) -> int:
     clock = clock or Clock()
     env = dict(os.environ) if env is None else env
     uptime_path = uptime_path or paths.uptime_db()
     logs_dir = logs_dir or paths.repo_dir() / "user_data" / "logs"
     rep = new_report("Demo test durdurma kontrolü", "demo_stop", reports_dir, env)
-    rep.add("Genel", "durdurma_zamani", INFO, fmt_both(from_ms(since_ms)))
+    if mark is None:
+        rep.add("Genel", "durdurma_oncesi", INFO, f"durdurma öncesi durum kaydı yok ({mark_problem or '?'}); "
+                "'zaten durmuştu' ayrımı yapılamaz, sadece son oturumlar kontrol edildi")
+    else:
+        rep.add("Genel", "durdurma_zamani", INFO, f"{fmt_both(from_ms(mark.created_ms))} (Docker saati)")
+    before = mark.last if mark is not None else {}
     if not Path(uptime_path).exists():
         rep.add("Durum", "uptime_db", WARN, "çalışma kaydı veritabanı yok: demo test hiç başlatılmamış")
         return rep.finish()
@@ -346,7 +461,7 @@ def run_stop(since_ms: int, *, timeout_s: float = STOP_TIMEOUT_S, poll_s: float 
     while True:
         sessions = safe_read_sessions(uptime_path, db_errors)
         now = clock.now_ms()
-        states = {c: classify_stop(sessions.get(c, []), since_ms, now) for c in COMPONENTS}
+        states = {c: classify_stop(sessions.get(c, []), before.get(c), now) for c in COMPONENTS}
         if all(s.kind != "unclean" for s in states.values()) or now >= deadline:
             break
         clock.sleep(poll_s)
@@ -368,14 +483,19 @@ def run_stop(since_ms: int, *, timeout_s: float = STOP_TIMEOUT_S, poll_s: float 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cyberbot.demo_status", description="Demo test başlat/durdur kontrolü")
-    parser.add_argument("action", choices=("start", "stop"))
-    parser.add_argument("--since", type=int, default=None, help="komutun verildiği an (UTC ms)")
+    parser.add_argument("action", choices=("mark", "start", "stop"))
+    parser.add_argument("target", nargs="?", choices=("start", "stop"), help="mark için: start ya da stop")
     parser.add_argument("--timeout", type=float, default=None, help="en fazla bekleme (sn)")
     args = parser.parse_args(argv)
-    since = args.since if args.since is not None else Clock().now_ms()
+    clock = Clock()
+    if args.action == "mark":
+        if args.target is None:
+            parser.error("mark start ya da mark stop")
+        return run_mark(args.target, clock=clock)
+    mark, problem = read_mark(mark_path(), args.action, clock.now_ms())
     if args.action == "start":
-        return run_start(since, timeout_s=args.timeout or START_TIMEOUT_S)
-    return run_stop(since, timeout_s=args.timeout or STOP_TIMEOUT_S)
+        return run_start(mark, mark_problem=problem, timeout_s=args.timeout or START_TIMEOUT_S, clock=clock)
+    return run_stop(mark, mark_problem=problem, timeout_s=args.timeout or STOP_TIMEOUT_S, clock=clock)
 
 
 if __name__ == "__main__":

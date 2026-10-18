@@ -78,7 +78,8 @@ def test_end_to_end_a_few_cycles(tmp_path):
     oi_recv = count(db, "SELECT MIN(recv_ms) FROM weex_oi")
     assert (oi_recv - oi_recv % BAR + BAR) - oi_recv <= 30_000      # mum kapanışından ~30 sn önce
     assert count(db, "SELECT COUNT(DISTINCT symbol) FROM weex_funding_hist") == 6
-    assert count(db, "SELECT COUNT(*) FROM weex_funding_hist WHERE avail_ms <> funding_ms") == 0
+    # açılışta toplu çekilen geçmiş: deterministik ödeme + 2 dk + 60 sn (hiçbiri ödeme anında değil)
+    assert count(db, "SELECT COUNT(*) FROM weex_funding_hist WHERE avail_ms <> funding_ms + 180000") == 0
 
     # Binance canlı tur (+30 sn) ve geçmiş doldurma
     live = [(t, p) for t, (u, p) in zip(http.times, http.calls) if "/futures/data/" in u and "endTime" not in p]
@@ -102,6 +103,11 @@ def test_end_to_end_a_few_cycles(tmp_path):
     assert count(db, "SELECT COUNT(*) FROM bn_liq_1m") == 1
     assert count(db, "SELECT long_liq_usd FROM bn_liq_1m") > 0
     assert count(db, "SELECT COUNT(*) FROM bn_liq_coverage_1m") >= 5
+    # kova, liq_agg'in onu ilk yazdığı andan (kova sonu + ~5 sn) önce kullanılabilir sayılmaz
+    assert count(db, "SELECT COUNT(*) FROM bn_liq_coverage_1m WHERE avail_ms < bucket_ms + 65000") == 0
+    assert count(db, "SELECT COUNT(*) FROM bn_liq_1m WHERE avail_ms < bucket_ms + 65000") == 0
+    # 29.5 günlük geçmiş için her Binance sembolünün 'open' boşluğu var (doldurma bitmedi)
+    assert count(db, "SELECT COUNT(DISTINCT symbol) FROM gaps WHERE source='bn_futures' AND state='open'") == 4
     assert count(db, "SELECT reason FROM ws_sessions") == "shutdown"
     assert json.loads(ws.connections[0].sent[0])["params"] == ["!forceOrder@arr"]
 
@@ -265,3 +271,113 @@ def test_run_stops_cleanly_on_request_stop(tmp_path):
     assert count(tmp_path / "derivs.sqlite", "SELECT COUNT(*) FROM bn_liquidations") == 1  # tampon yazıldı
     assert count(tmp_path / "derivs.sqlite", "SELECT reason FROM ws_sessions") == "shutdown"
     assert ws.connections[0].closed
+
+
+def test_ws_task_error_is_supervised_and_restarted(tmp_path):
+    """Tek bir sqlite hatası WS işini kalıcı durdurmaz: oturum kapanır, kopukluk izlemeye görünür,
+    iş beklemeyle yeniden başlar."""
+    import sqlite3
+
+    clock = FakeClock(START)
+    http = FakeHttp(clock)
+    ws = FakeWsFactory([[], []])
+    rec = make(tmp_path, clock, http, ws, task_restart_base_s=0.01, binance={"max_rps": 1000,
+                                                                              "ws_backoff_max_s": 0.01})
+    seen = {}
+
+    async def main():
+        await rec.start(background=False, heartbeat=False)
+        real = rec.db.ws_open_sessions
+        calls = {"n": 0}
+
+        def flaky():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise sqlite3.OperationalError("disk I/O error")
+            return real()
+
+        rec.db.ws_open_sessions = flaky
+        orig_failed = rec._ws_failed
+
+        def failed():
+            orig_failed()
+            seen["down_since"] = rec.status.ws_down_since_ms
+
+        rec._ws_failed = failed
+        rec.start_background(backfill=False)
+        for _ in range(300):  # gerçek zamanlı yeniden başlatma beklemesi (0.01 sn)
+            await asyncio.sleep(0.01)
+            if len(ws.connections) >= 2 and rec.status.ws_down_since_ms is None:
+                break
+        await run_until(rec, clock, START + 3 * MIN)
+        state = (rec.background[0].done(), rec.status.ws_down_since_ms, rec.status.jobs["binance_ws"].consecutive_fail)
+        await rec.shutdown()
+        return state
+
+    done, down_since, fails = asyncio.run(main())
+    assert not done and len(ws.connections) == 2
+    assert seen["down_since"] is not None and down_since is None  # hata anında kopuk, sonra yeniden bağlı
+    assert fails == 1
+    reasons = [r for (r,) in rec_db(tmp_path).execute("SELECT reason FROM ws_sessions ORDER BY conn_id")]
+    assert reasons == ["error", "shutdown"]                       # açık (kapsama sayan) oturum kalmadı
+    assert "disk I/O" in count(tmp_path / "derivs.sqlite",
+                               "SELECT last_err FROM heartbeat WHERE component='binance_ws'")
+
+
+def rec_db(tmp_path):
+    import sqlite3
+
+    return sqlite3.connect(tmp_path / "derivs.sqlite")
+
+
+def test_repeated_job_failure_alerts_and_other_sources_continue(tmp_path):
+    clock = FakeClock(START)
+    http = FakeHttp(clock)
+    sent: list[str] = []
+
+    async def main():
+        rec = make(tmp_path, clock, http, sent=sent)
+        await rec.start(background=False, heartbeat=False)
+        UptimeStore(tmp_path / "uptime.sqlite", "freqtrade").start_session(at_ms=START + 10 * MIN)  # bot canlı
+
+        def broken(rows):
+            raise RuntimeError("database or disk is full")
+
+        rec.db.upsert_weex_premium = broken
+        await run_until(rec, clock, START + 11 * MIN)
+        rows = rec.db.query("SELECT COUNT(*) FROM bn_futures_data")[0][0]
+        await rec.shutdown()
+        return rows
+
+    bn_rows = asyncio.run(main())
+    alerts = [m for m in sent if m.startswith("UYARI: Kaydedicide")]
+    assert len(alerts) == 1 and "'weex_premium'" in alerts[0] and "disk is full" in alerts[0]
+    assert bn_rows > 0
+    kinds = [e.kind for e in UptimeStore(tmp_path / "uptime.sqlite", "recorder").events()]
+    assert "task_failing" in kinds
+
+
+def test_recorder_heartbeat_follows_main_loop_and_closes_current_session(tmp_path):
+    clock = FakeClock(START)
+    http = FakeHttp(clock)
+
+    async def main():
+        rec = make(tmp_path, clock, http)
+        await rec.start(background=False, heartbeat=True)
+        first = rec.heartbeat.session_id
+        assert rec.loop_alive()
+        clock.set(START + 10 * MIN)          # ana döngü 10 dk ilerlemedi (takıldı)
+        assert not rec.loop_alive()
+        rec.heartbeat.beat()
+        assert rec.heartbeat.stalled
+        await rec.tick()
+        await rec.drain()
+        rec.heartbeat.beat()                 # döngü yeniden ilerliyor: yeni oturum
+        second = rec.heartbeat.session_id
+        await rec.shutdown()
+        return first, second
+
+    first, second = asyncio.run(main())
+    assert first != second
+    kinds = {s.id: s.stop_kind for s in UptimeStore(tmp_path / "uptime.sqlite", "recorder").sessions()}
+    assert kinds == {first: "stalled", second: "clean"}  # kapanış güncel oturuma yazıldı

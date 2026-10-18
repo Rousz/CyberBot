@@ -1,6 +1,8 @@
 @echo off
 rem CyberBot - Demo testi baslatir: sanal 1000 USDT, WEEX fiyatlari, API anahtari gerekmez.
 rem Cift tikla. Bot ve kaydedici arka planda calismaya baslar; bu pencere kapanabilir.
+rem Zaten calisiyorlarsa duzgunce durdurulup YENIDEN acilir: guncellemeden (GitHub Desktop Pull)
+rem sonra yeni kod/ayar yuklenir, Telegram /stop ve /stopentry sifirlanir.
 rem Sonuc: ekranda ve reports\demo_start_<UTC zaman>.txt
 setlocal EnableExtensions
 chcp 65001 >nul
@@ -12,22 +14,22 @@ call "setup\check_docker.bat"
 if errorlevel 1 goto :docker_missing
 if not exist ".env" goto :no_env
 
-set "SINCE="
-for /f "usebackq delims=" %%t in (`powershell -NoProfile -Command "[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()"`) do set "SINCE=%%t"
-if not defined SINCE goto :no_clock
-
 set "MARK=reports\logs\demo_start_last.txt"
 if exist "%MARK%" del /q "%MARK%"
 
 echo.
 echo Demo test baslatiliyor. Ilk seferde imaj hazirlanir, birkac dakika surebilir.
+echo Bot zaten calisiyorsa duzgunce durdurulup yeniden acilir, en fazla 1-2 dakika.
 echo.
-docker compose up -d --build freqtrade recorder
+rem Saat karsilastirmasi yok: once mevcut oturumlar kaydedilir, sonra YENI oturum aranir.
+docker compose run --rm --build tools cyberbot.demo_status mark start
+if errorlevel 1 goto :mark_failed
+docker compose up -d --build --force-recreate freqtrade recorder
 if errorlevel 1 goto :compose_failed
 
 echo.
 echo Bot ve kaydedicinin acilmasi kontrol ediliyor, en fazla 2 dakika...
-docker compose run --rm tools cyberbot.demo_status start --since %SINCE%
+docker compose run --rm tools cyberbot.demo_status start
 set "RC=%ERRORLEVEL%"
 if not exist "%MARK%" goto :status_failed
 if not "%RC%"=="0" goto :start_failed
@@ -66,14 +68,15 @@ echo Kapatmak icin bir tusa bas.
 pause >nul
 exit /b 1
 
-:no_clock
+:mark_failed
 call "setup\stamp.bat"
-> "reports\demo_start_error.txt" echo %UTCNOW% UTC - SONUC: HATA - PowerShell ile saat okunamadi.
+> "reports\demo_start_error.txt" echo %UTCNOW% UTC - SONUC: HATA - baslatma oncesi durum kaydedilemedi, bot baslatilmadi.
 echo.
 echo ==================================================
-echo   SONUC: HATA - saat okunamadi
+echo   SONUC: HATA - bot baslatilmadi
 echo ==================================================
-echo PowerShell calismiyor olabilir. Bu ekranin goruntusunu bana getir.
+echo Imaj hazirlanamadi ya da calisma kaydi okunamadi. Internet baglantisini kontrol et.
+echo Yukaridaki hata satirlarinin ekran goruntusunu ya da metnini bana getir.
 echo.
 echo Kapatmak icin bir tusa bas.
 pause >nul

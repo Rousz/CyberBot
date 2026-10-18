@@ -117,8 +117,10 @@ class RateLimiter:
     belirtilen süre durdurur (429 Retry-After, 418 IP yasağı).
 
     Öncelik: düşük öncelikli istekler (geçmiş doldurma) yüksek öncelikli bir istek
-    beklerken ya da high_section() açıkken bekler ve pencerenin sadece low_cap
-    kadarını kullanabilir; böylece canlı sorgu her zaman yer bulur."""
+    beklerken ya da high_section() açıkken bekler. Pencerede en fazla low_cap düşük
+    öncelikli istek olabilir (sadece düşük öncelikli istekler sayılır; canlı istekler
+    window_max'a sayılır). low_cap = window_max - canlı tur payı olduğundan canlı sorgu
+    her zaman yer bulur, kalan pay da gerçekten doldurmaya kalır."""
 
     def __init__(self, clock: Clock, *, max_rps: float, window_s: float, window_max: int, name: str = ""):
         self.clock = clock
@@ -127,7 +129,8 @@ class RateLimiter:
         self.window_ms = int(window_s * 1000)
         self.window_max = max(1, int(window_max))
         self.low_cap = self.window_max
-        self.stamps: deque[int] = deque()
+        self.stamps: deque[int] = deque()        # tüm istekler
+        self.low_stamps: deque[int] = deque()    # sadece düşük öncelikli istekler
         self.last_ms: int | None = None
         self.paused_until_ms = 0
         self.pause_reason = ""
@@ -137,8 +140,9 @@ class RateLimiter:
     # --- saf hesap (testli) -------------------------------------------------
 
     def _prune(self, now: int) -> None:
-        while self.stamps and self.stamps[0] <= now - self.window_ms:
-            self.stamps.popleft()
+        for stamps in (self.stamps, self.low_stamps):
+            while stamps and stamps[0] <= now - self.window_ms:
+                stamps.popleft()
 
     def in_window(self, now: int) -> int:
         self._prune(now)
@@ -152,15 +156,20 @@ class RateLimiter:
         wait = 0.0
         if self.last_ms is not None and self.min_gap_ms:
             wait = max(wait, self.last_ms + self.min_gap_ms - now)
-        cap = min(self.low_cap, self.window_max) if low else self.window_max
-        if cap <= 0:
-            return max(wait, 1000.0)  # düşük önceliğe pay kalmadı: sonra tekrar bak
-        if len(self.stamps) >= cap:
-            wait = max(wait, self.stamps[len(self.stamps) - cap] + self.window_ms - now)
+        if low:
+            cap = min(self.low_cap, self.window_max)
+            if cap <= 0:
+                return max(wait, 1000.0)  # düşük önceliğe pay kalmadı: sonra tekrar bak
+            if len(self.low_stamps) >= cap:
+                wait = max(wait, self.low_stamps[len(self.low_stamps) - cap] + self.window_ms - now)
+        if len(self.stamps) >= self.window_max:
+            wait = max(wait, self.stamps[len(self.stamps) - self.window_max] + self.window_ms - now)
         return wait
 
-    def record(self, now: int) -> None:
+    def record(self, now: int, low: bool = False) -> None:
         self.stamps.append(now)
+        if low:
+            self.low_stamps.append(now)
         self.last_ms = now
 
     def pause(self, seconds: float, now: int, reason: str = "") -> None:
@@ -194,7 +203,7 @@ class RateLimiter:
                 if low and (self._high_waiting or self._high_active):
                     wait = max(wait, 200.0)
                 if wait <= 0:
-                    self.record(now)
+                    self.record(now, low)
                     return
                 await self.clock.sleep(min(wait, 5000.0) / 1000.0)
         finally:

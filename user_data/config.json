@@ -140,6 +140,7 @@
       "target_rr": 1.8,
       "leverage": 3,
       "risk_per_trade": 0.01,
+      "round_trip_fee": 0.002,
       "cap_stake_to_slot": true,
       "max_hold_minutes": 180,
       "trend": {

@@ -31,12 +31,61 @@ def test_sliding_window_cap_and_expiry():
 def test_low_priority_cap_leaves_room_for_live():
     lim = make(max_rps=1000, window_s=10, window_max=5)
     lim.low_cap = 2
-    lim.record(0)
-    lim.record(1)
+    lim.record(0, low=True)
+    lim.record(1, low=True)
     assert lim.delay_ms(2, low=True) > 0     # doldurma payı bitti
     assert lim.delay_ms(2, low=False) == 0   # canlı hâlâ gidebilir
     lim.low_cap = 0
     assert lim.delay_ms(50_000, low=True) > 0
+
+
+def test_live_requests_do_not_consume_backfill_share():
+    """low_cap sadece düşük öncelikli istekleri sayar; toplam yine window_max'ı aşamaz."""
+    lim = make(max_rps=1000, window_s=10, window_max=5)
+    lim.low_cap = 2
+    for t in (0, 1, 2):
+        lim.record(t)                         # canlı istekler
+    assert lim.delay_ms(3, low=True) == 0     # doldurma payı (2) hâlâ boş
+    lim.record(3, low=True)
+    lim.record(4, low=True)
+    assert lim.delay_ms(5, low=True) > 0      # pay doldu
+    assert lim.delay_ms(5, low=False) == 10_000 - 5  # pencere (5) doldu: canlı da en eski isteği bekler
+
+
+def simulate_backfill_rate(n_symbols: int, hours: int = 2) -> float:
+    """Varsayılanlarla: her 5m mum + 30 sn'de 5*n canlı istek (yüksek öncelik, bitene kadar
+    doldurma bekler), arada doldurma sınırlayıcının izin verdiği kadar. Döner: 5 dk'da doldurma isteği."""
+    from cyberbot.recorder.binance_rest import BinanceRest
+    from cyberbot.recorder.defaults import RECORDER_DEFAULTS
+
+    b = RECORDER_DEFAULTS["binance"]
+    lim = make(max_rps=b["max_rps"], window_s=b["window_s"], window_max=b["window_max"])
+    holder = type("H", (), {"limiter": lim})()
+    BinanceRest.set_low_cap(holder, n_symbols)  # gerçek formül
+    pending = low_sent = 0
+    bar = 300_000
+    for t in range(0, hours * 3_600_000, 50):
+        if t % bar == 30_000:
+            pending += 5 * n_symbols
+        if pending:
+            if lim.delay_ms(t) <= 0:
+                lim.record(t)
+                pending -= 1
+            continue
+        if lim.delay_ms(t, low=True) <= 0:
+            lim.record(t, low=True)
+            low_sent += 1
+    assert pending == 0 or pending <= 5 * n_symbols  # canlı tur her zaman yetişir
+    return low_sent / (hours * 12)
+
+
+def test_backfill_keeps_its_reserved_share_with_60_symbols():
+    # 60 Binance sembolü: canlı 300 istek/5 dk; low_cap = 700 - 400 = 300. Eskiden ~1 istek/5 dk kalıyordu.
+    rate = simulate_backfill_rate(60)
+    assert rate >= 250
+    assert simulate_backfill_rate(65) >= 200
+    # 29.5 günlük ilk doldurma (60 sembol x 5 uç x 16 istek) birkaç saatte biter
+    assert 60 * 5 * 16 / rate * 5 / 60 < 6
 
 
 def test_pause_blocks_everything_and_retry_after_parsing():

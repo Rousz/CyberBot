@@ -10,7 +10,10 @@
 - monitor      : 30 sn'de bir
 - maintenance  : saatte bir (fetch_log 7 günden eski satırlar silinir)
 Arka planda: Binance likidasyon WS'i ve Binance geçmiş doldurma işçisi.
-Bir kaynağın hatası diğerlerini durdurmaz; her iş kendi hatasını yakalar.
+Bir kaynağın hatası diğerlerini durdurmaz; her iş kendi hatasını yakalar. Arka plan işleri
+hata verip biterse artan beklemeyle (5, 10, 20 ... 300 sn) yeniden başlatılır. Bir iş üst üste
+task_alert_failures kez hata verirse izleme Telegram'a yazar (Status.jobs).
+Kaydedicinin uptime kalp atışı sadece ana döngü (tick) son 5 dakikada ilerlediyse yazılır.
 """
 
 from __future__ import annotations
@@ -37,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 LIQ_REAGG_MS = 5 * MIN_MS
 MAX_BUFFER = 100_000
+LOOP_ALIVE_MS = 5 * MIN_MS
 
 
 def next_aligned(now_ms: int, step_ms: int, offset_ms: int) -> int:
@@ -117,6 +121,7 @@ class Recorder:
         self._funding_due: list[str] = []
         self._weex_snapshot: tuple[int, Any, Any] | None = None
         self._closed = False
+        self._last_tick_ms = 0
 
     # --- yardımcı -----------------------------------------------------------
 
@@ -143,10 +148,11 @@ class Recorder:
 
     async def start(self, *, background: bool = True, heartbeat: bool = True) -> None:
         now = self.clock.now_ms()
-        self.started_ms = now
+        self.started_ms = self._last_tick_ms = now
         self.session_id = self.uptime.start_session(version=__version__, detail="derivs recorder", at_ms=now)
         if heartbeat:
-            self.heartbeat = Heartbeat(self.uptime, self.session_id).start()
+            self.heartbeat = Heartbeat(self.uptime, self.session_id, is_alive=self.loop_alive,
+                                       version=__version__).start()
         hb = self.db.heartbeat("binance_ws")
         closed = self.db.ws_close_dangling(hb[0] if hb else None)
         if closed:
@@ -158,13 +164,21 @@ class Recorder:
             self.mappings[row["weex_symbol"]] = mapping_from_row(row)
         prev_active = sorted(r["weex_symbol"] for r in self.db.load_symbol_map() if r["active"])
         self.tracked = prev_active or list(self.scfg["always_track"])
-        ok = await self.refresh_symbols()
+        try:
+            ok = await self.refresh_symbols()
+        except Exception:  # açılış hatası kaydediciyi düşürmesin: sembol işi sonra tekrar dener
+            logger.exception("Açılışta sembol listesi yenilenemedi")
+            ok = False
         now = self.clock.now_ms()
         if self.binance_on:
             self.binance.set_priority(self.binance_symbols())
             self.binance.set_low_cap(len(self.binance_symbols()))
-            self.binance.record_startup_gaps(self.binance_symbols(), now)
-            n = self.binance.plan(self.binance_symbols(), now)
+            try:
+                self.binance.record_startup_gaps(self.binance_symbols(), now)
+                n = self.binance.plan(self.binance_symbols(), now)
+            except Exception:
+                logger.exception("Binance geçmiş doldurma planlanamadı (saatlik yenilemede tekrar)")
+                n = 0
             if n:
                 logger.info("Binance geçmiş doldurma: %d istek kuyrukta (öncelik BTC, ETH, hacim)", n)
         period_ms = PERIOD_MS[self.bcfg["period"]]
@@ -188,14 +202,69 @@ class Recorder:
         logger.info("Kaydedici başladı: %d WEEX sembolü, %d Binance sembolü izleniyor", len(self.tracked),
                     len(self.binance_symbols()))
 
+    def loop_alive(self) -> bool:
+        """Uptime kalp atışı için: ana döngü son 5 dakikada ilerledi mi."""
+        return self.clock.now_ms() - self._last_tick_ms <= LOOP_ALIVE_MS
+
     def start_background(self, *, ws: bool = True, backfill: bool = True) -> None:
         if self.binance_on and ws:
             self.ws = LiquidationStream(self.bcfg["ws_url"], self.db, self.clock, self.bcfg, self.status,
                                         self.liq_buffer.extend, connect=self.ws_connect, run_id=self.session_id)
-            self.background.append(asyncio.create_task(self._guarded("binance_ws", self.ws.run(self.stop_event))))
+            self.background.append(asyncio.create_task(
+                self._supervise("binance_ws", lambda: self.ws.run(self.stop_event), on_error=self._ws_failed),
+                name="binance_ws"))
         if self.binance_on and backfill:
             self.background.append(asyncio.create_task(
-                self._guarded("backfill", self.binance.backfill_worker(self.stop_event))))
+                self._supervise("backfill", lambda: self.binance.backfill_worker(self.stop_event)), name="backfill"))
+
+    def _ws_failed(self) -> None:
+        """WS işi hatayla bitti: izleme kopukluğu görsün, açık kalan oturum kapsama saymasın."""
+        now = self.clock.now_ms()
+        if self.status.ws_down_since_ms is None:
+            self.status.ws_down_since_ms = now
+        try:
+            self.db.ws_close_dangling(now, reason="error")
+        except Exception as exc:
+            logger.warning("WS oturumları kapatılamadı: %s", exc)
+
+    async def _sleep_or_stop(self, seconds: float) -> None:
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(self.stop_event.wait(), timeout=max(0.0, seconds))
+
+    async def _supervise(self, name: str, factory: Callable[[], Any], on_error: Callable[[], None] | None = None):
+        """Arka plan işini çalıştırır; hata verip biterse (veya beklenmedik şekilde biterse) artan
+        beklemeyle yeniden başlatır. task_stable_s hatasız çalışınca iş sağlıklı sayılır."""
+        base = float(self.cfg.get("task_restart_base_s", 5))
+        cap = float(self.cfg.get("task_restart_max_s", 300))
+        stable_s = float(self.cfg.get("task_stable_s", 120))
+        while not self.stop_event.is_set():
+            task = asyncio.ensure_future(factory())
+            try:
+                done, _ = await asyncio.wait({task}, timeout=stable_s)
+                if not done:
+                    self.status.job_ok(name, self.clock.now_ms())
+                    await task
+                else:
+                    task.result()
+                if self.stop_event.is_set():
+                    return
+                raise RuntimeError("iş beklenmedik şekilde bitti")
+            except asyncio.CancelledError:
+                if not task.done():
+                    task.cancel()
+                    with contextlib.suppress(BaseException):
+                        await task
+                raise
+            except Exception as exc:
+                now = self.clock.now_ms()
+                n = self.status.job_fail(name, now, f"{type(exc).__name__}: {exc}")
+                logger.exception("'%s' işi hata verdi (%d. kez üst üste); yeniden başlatılacak", name, n)
+                with contextlib.suppress(Exception):
+                    self.db.heartbeat_err(name, now, f"{type(exc).__name__}: {exc}")
+                if on_error is not None:
+                    with contextlib.suppress(Exception):
+                        on_error()
+                await self._sleep_or_stop(min(cap, base * 2 ** (n - 1)))
 
     # --- işler --------------------------------------------------------------
 
@@ -306,7 +375,7 @@ class Recorder:
             start = last[sym] + 1 if sym in last else None
             recv, data = await self.weex.funding_history(sym, start, limit)
             if data is not None:
-                self.db.upsert_weex_funding(parse_funding(data, sym, recv))
+                self.db.upsert_weex_funding(parse_funding(data, sym, recv, self.funding.delay_ms))
             self.funding.mark(sym, self.clock.now_ms(), data is not None)
 
     async def bn_live(self, due_ms: int) -> None:
@@ -320,7 +389,11 @@ class Recorder:
     def liq_agg(self) -> None:
         now = self.clock.now_ms()
         self.flush()
-        self.db.aggregate_liq_1m(now - LIQ_REAGG_MS, now, now)
+        start = now - LIQ_REAGG_MS
+        reagg = self.ws.pop_reagg_from() if self.ws is not None else None
+        if reagg is not None:  # sessiz bağlantı geriye dönük kapandı: o andan beri yeniden hesapla
+            start = min(start, reagg)
+        self.db.aggregate_liq_1m(start, now, now)
         if self.status.ws_enabled and self.status.ws_down_since_ms is None:
             self.db.heartbeat_ok("binance_ws", now)
 
@@ -377,21 +450,30 @@ class Recorder:
         elif name == "liq_agg":
             self.liq_agg()
         elif name == "monitor":
-            self.db.heartbeat_ok("recorder", self.clock.now_ms())
+            try:
+                self.db.heartbeat_ok("recorder", self.clock.now_ms())
+            except Exception as exc:  # DB hatası izlemeyi durdurmasın
+                logger.warning("recorder heartbeat yazılamadı: %s", exc)
             if self.monitor is not None:
                 await self.monitor.check(self.clock.now_ms())
         elif name == "maintenance":
             self.maintenance()
 
     async def _guarded(self, name: str, coro) -> None:
+        """Zamanlanmış iş: hatası yakalanır (iş bir sonraki zamanında tekrar çalışır), üst üste
+        hata sayısı izlemeye bildirilir."""
         try:
             await coro
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            logger.exception("'%s' işi hata verdi", name)
+            now = self.clock.now_ms()
+            n = self.status.job_fail(name, now, f"{type(exc).__name__}: {exc}")
+            logger.exception("'%s' işi hata verdi (%d. kez üst üste)", name, n)
             with contextlib.suppress(Exception):
-                self.db.heartbeat_err(name, self.clock.now_ms(), f"{type(exc).__name__}: {exc}")
+                self.db.heartbeat_err(name, now, f"{type(exc).__name__}: {exc}")
+        else:
+            self.status.job_ok(name, self.clock.now_ms())
 
     def _spawn(self, name: str, due_ms: int) -> None:
         self.tasks[name] = asyncio.create_task(self._guarded(name, self._run_job(name, due_ms)), name=name)
@@ -403,6 +485,7 @@ class Recorder:
     async def tick(self) -> None:
         """Zamanı gelen işleri başlatır (beklemeden). Uzun süren iş bitmeden tekrar başlatılmaz."""
         now = self.clock.now_ms()
+        self._last_tick_ms = now
         self.flush()
         for name, due in list(self.due.items()):
             if now >= due:
@@ -428,7 +511,10 @@ class Recorder:
             await self.start()
             tick_s = float(self.cfg["tick_s"])
             while not self.stop_event.is_set():
-                await self.tick()
+                try:
+                    await self.tick()
+                except Exception:  # zamanlayıcı asla durmasın
+                    logger.exception("zamanlayıcı turu hata verdi")
                 with contextlib.suppress(TimeoutError):
                     await asyncio.wait_for(self.stop_event.wait(), timeout=tick_s)
         finally:
@@ -452,10 +538,12 @@ class Recorder:
         for client in (self.http_binance, self.http_weex):
             with contextlib.suppress(Exception):
                 await client.close()
+        session_id = self.session_id
         if self.heartbeat is not None:
             self.heartbeat.stop()
-        if self.session_id is not None:
+            session_id = self.heartbeat.session_id  # takılmadan sonra yeni oturum açılmış olabilir
+        if session_id is not None:
             with contextlib.suppress(Exception):
-                self.uptime.stop_session(self.session_id, "clean", at_ms=self.clock.now_ms())
+                self.uptime.stop_session(session_id, "clean", at_ms=self.clock.now_ms())
         self.db.close()
         logger.info("Kaydedici düzgün kapandı")

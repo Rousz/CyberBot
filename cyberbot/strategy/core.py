@@ -197,7 +197,10 @@ def triggers(df: pd.DataFrame, p: dict[str, Any]) -> tuple[pd.Series, pd.Series]
 
 
 def stops_targets(df: pd.DataFrame, p: dict[str, Any]) -> dict[str, pd.Series]:
-    """Sinyal mumu kapanışına (giriş referansı) göre stop, hedef, stop mesafesi, R/R."""
+    """Sinyal mumu kapanışına (giriş referansı) göre stop, hedef, stop mesafesi, R/R.
+
+    R/R BRÜTTÜR (ücretsiz fiyat mesafeleri; yaygın kural). Ücret pozisyon büyüklüğünde
+    hesaba katılır (risk_stake, round_trip_fee): stopta kayıp yine risk_per_trade kalır."""
     s = p["stop"]
     rr_target = float(p["target_rr"])
     buf = float(s["atr_buffer"]) * df["atr"]
@@ -258,7 +261,7 @@ def populate_signals(df: pd.DataFrame, p: dict[str, Any], btc_prefix: str = "btc
     """Giriş sinyali + planlanan stop/hedef/puan sütunları.
 
     Zorunlu (puandan bağımsız): trend filtresi uyumu, kapanmış mum teyidi (tetik),
-    stop mesafesi sınırlar içinde, R/R >= min_rr, bilgi mumları taze. Sonra puan >= eşik.
+    stop mesafesi sınırlar içinde, brüt R/R >= min_rr, bilgi mumları taze. Sonra puan >= eşik.
     """
     trend = trend_layer(df, p, btc_prefix)
     long_trig, short_trig = triggers(df, p)
@@ -323,30 +326,46 @@ def plan_from_fill(open_rate: float, sl: float | None, is_short: bool, target_rr
             "crossed": bool(crossed), "source": source}
 
 
-def exit_reason(*, is_short: bool, rate: float, tp: float | None, crossed: bool, held_minutes: float,
-                max_hold_minutes: float) -> str | None:
-    """custom_exit kararı: dolum stopu geçtiyse hemen çık; hedef geçildiyse kâr al; süre dolduysa çık."""
+def exit_reason(*, crossed: bool, held_minutes: float, max_hold_minutes: float) -> str | None:
+    """custom_exit kararı: dolum stopu geçtiyse hemen çık; süre dolduysa çık.
+
+    Kâr hedefi (tp) burada DEĞİL: custom_roi ile Freqtrade'in ROI mekanizmasına verilir
+    (çıkış etiketi "roi"). Böylece backtest hedefi mumun tepe/dibine göre mum içinde yakalar;
+    custom_exit backtest'te sadece mum açılışını görür. Canlıda ikisi de her döngüde denetlenir.
+    """
     if crossed:
         return "fill_beyond_stop"
-    if tp is not None and ((not is_short and rate >= tp) or (is_short and rate <= tp)):
-        return "take_profit"
     if max_hold_minutes > 0 and held_minutes >= max_hold_minutes:
         return "time_stop"
     return None
 
 
+def target_roi(trade: Any, tp: float | None) -> float | None:
+    """custom_roi değeri: hedef fiyattaki kâr oranı (Freqtrade'in kendi hesabıyla: kaldıraç,
+    ücretler ve fonlama dahil), böylece ROI eşiği tam hedef fiyatta tetiklenir. tp yoksa None."""
+    if tp is None:
+        return None
+    tp = float(tp)
+    if not np.isfinite(tp) or tp <= 0:
+        return None
+    return float(trade.calc_profit_ratio(tp))
+
+
 def risk_stake(*, equity: float, risk_per_trade: float, rate: float, sl: float | None, leverage: float,
                min_stake: float | None, max_stake: float, proposed_stake: float | None = None,
-               cap_to_slot: bool = True) -> float:
+               cap_to_slot: bool = True, round_trip_fee: float = 0.0) -> float:
     """Risk tabanlı teminat (USDT). 0 = işlem açma.
 
-    Kayıp ≈ teminat x kaldıraç x stop mesafesi = özsermaye x risk_per_trade.
+    Stopta kayıp ≈ teminat x kaldıraç x (stop mesafesi + gidiş-dönüş ücret/kayma)
+    = özsermaye x risk_per_trade. Ücret paydaya eklenmezse dar stopta gerçek kayıp hedefi aşar
+    (%0.4 stop + %0.16 ücret -> %1 yerine ~%1.4).
     """
     if sl is None or not np.isfinite(sl) or rate <= 0 or leverage <= 0 or equity <= 0:
         return 0.0
-    dist = abs(rate - sl) / rate
-    if dist <= 0:
+    price_dist = abs(rate - sl) / rate
+    if price_dist <= 0:
         return 0.0
+    dist = price_dist + max(0.0, float(round_trip_fee))
     stake = equity * risk_per_trade / (dist * leverage)
     upper = max_stake
     if cap_to_slot and proposed_stake:

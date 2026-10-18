@@ -171,22 +171,42 @@ def force_order(symbol="BTCUSDT", side="SELL", t=T0, price="74000", qty="0.5", a
     return msg
 
 
-class FakeWsConnection:
-    """websockets ClientConnection yerine: send/close/async for."""
+class FakeWsClosed(Exception):
+    pass
 
-    def __init__(self, messages: list):
+
+class FakeWsConnection:
+    """websockets ClientConnection yerine: send/recv/close/async for.
+    ack=True: SUBSCRIBE gelince Binance gibi {"result": null, "id": n} cevabı kuyruğa eklenir
+    (betik zaten bir cevap içeriyorsa eklenmez). ack="error": hata cevabı."""
+
+    def __init__(self, messages: list, ack: bool | str = True):
         self.sent: list[str] = []
+        self.ack = ack
         self._queue: asyncio.Queue = asyncio.Queue()
+        self._scripted_reply = any(isinstance(m, dict) and "id" in m and ("result" in m or "error" in m)
+                                   for m in messages)
         for m in messages:
             self._queue.put_nowait(json.dumps(m) if not isinstance(m, str) else m)
         self.closed = False
 
     async def send(self, text: str) -> None:
         self.sent.append(text)
+        msg = json.loads(text)
+        if msg.get("method") == "SUBSCRIBE" and self.ack and not self._scripted_reply:
+            reply = {"error": {"code": 2, "msg": "Invalid request"}, "id": msg["id"]} if self.ack == "error" \
+                else {"result": None, "id": msg["id"]}
+            self._queue.put_nowait(json.dumps(reply))
 
     async def close(self) -> None:
         self.closed = True
         self._queue.put_nowait(None)
+
+    async def recv(self):
+        item = await self._queue.get()
+        if item is None:
+            raise FakeWsClosed("kapandı")
+        return item
 
     def __aiter__(self):
         return self
@@ -199,11 +219,12 @@ class FakeWsConnection:
 
 
 class FakeWsFactory:
-    def __init__(self, scripts: list[list]):
+    def __init__(self, scripts: list[list], ack: bool | str = True):
         self.scripts = list(scripts)
+        self.ack = ack
         self.connections: list[FakeWsConnection] = []
 
     async def __call__(self, url: str, **kwargs) -> FakeWsConnection:
-        conn = FakeWsConnection(self.scripts.pop(0) if self.scripts else [])
+        conn = FakeWsConnection(self.scripts.pop(0) if self.scripts else [], ack=self.ack)
         self.connections.append(conn)
         return conn
