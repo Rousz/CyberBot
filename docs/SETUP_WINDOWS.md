@@ -139,6 +139,14 @@ listelenir. Sol altta **Summary** kutusuna `Faz 0 test sonuclari` yaz →
 **Yol 2:** `reports\connection_test_<tarih>.txt` ve `reports\quick_check_latest.txt`
 dosyalarını Not Defteri ile açıp içeriğini sohbete yapıştır.
 
+## Adım 10 – Sonraki adımlar
+
+1. `02_weex_probe.bat`: WEEX'in ayrıntılı kontrolü (birkaç dakika sürer). Sonucunu Adım 9'daki
+   gibi bana gönder; botun WEEX ayarlarını buna göre doğrulayacağım.
+2. Demo test: [DEMO_TEST.md](DEMO_TEST.md) rehberini izle (`10_demo_start.bat` ile başlar).
+3. Her güncellememden sonra: GitHub Desktop'ta **Fetch origin** → **Pull origin**, ardından
+   demo çalışıyorsa `10_demo_start.bat`'ı bir kez daha çalıştır (yeni kodu yükleyip botu yeniden başlatır).
+
 ---
 
 ## Sık karşılaşılan sorunlar

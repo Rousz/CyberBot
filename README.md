@@ -1,3 +1,35 @@
+# CyberBot – WEEX scalp botu (Freqtrade tabanlı)
+
+WEEX USDT-M vadeli işlemlerde (long + short, isolated, 3x) otomatik scalp botu.
+Şu an **demo test (dry-run)** aşamasında: sanal 1000 USDT, API anahtarı gerekmez.
+
+**Nereden başlamalı:**
+
+1. Kurulum: [docs/SETUP_WINDOWS.md](docs/SETUP_WINDOWS.md)
+2. Demo test: [docs/DEMO_TEST.md](docs/DEMO_TEST.md)
+3. Hangi aşamadayız, sırada ne var: [PROGRESS.md](PROGRESS.md)
+4. Teknik yapı: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+**Çift tıklanan dosyalar (sırasıyla):**
+
+| Dosya | Ne yapar |
+| --- | --- |
+| `setup_env.bat` | Gizli bilgi dosyası `.env`'i oluşturur/açar (Telegram) |
+| `setup_wslconfig.bat` | Docker'ın RAM/işlemci kullanımını sınırlar |
+| `00_quick_check.bat` | Docker'sız hızlı erişim kontrolü |
+| `01_connection_test.bat` | WEEX + Binance + Telegram bağlantı testi |
+| `02_weex_probe.bat` | WEEX'in ayrıntılı davranış kontrolü (bot ayarları için) |
+| `10_demo_start.bat` | Demo testi başlatır (güncellemelerden sonra da bunu çalıştır) |
+| `11_demo_stop.bat` | Demo testi durdurur |
+| `12_demo_report.bat` | Demo test raporu üretir |
+
+Her script sonunda `SONUÇ: BAŞARILI / HATA` yazar ve özetini `reports/` klasörüne kaydeder.
+
+---
+
+> Not: Bu dalda daha önceki "Synora Music Group" web sitesinin dosyaları da duruyor
+> (`src/`, `public/`, `package.json` …). Aşağıdaki bölüm o siteye aittir; bot ile ilgisi yoktur.
+
 # Synora Music Group — Website
 
 Static marketing site for Synora Music Group. Vite + React + TypeScript, styled with Tailwind CSS,
