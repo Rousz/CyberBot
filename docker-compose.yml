@@ -3,7 +3,8 @@
 # Imaj: docker/Dockerfile (Freqtrade 2026.9 + ccxt 4.5.88 + WEEX sinifi), surumler sabit.
 # Gizli bilgiler (Telegram, WEEX API) sadece PC'deki .env dosyasindan okunur.
 # Veritabanlari "cyberbot_data" Docker volume'unda (/data) durur; Windows klasoru uzerinden
-# SQLite kilitlenme sorunlari yasanmasin diye. Repo /repo olarak baglanir.
+# SQLite kilitlenme sorunlari yasanmasin diye. Repodan sadece gereken klasorler /repo altina
+# baglanir (kod salt okunur); .env hicbir container'a girmez, degerleri environment ile gelir.
 # Bu dosya Turkiye'de bir VPS'e de aynen tasinabilir.
 
 name: cyberbot
@@ -16,7 +17,9 @@ x-cyberbot: &cyberbot
     dockerfile: docker/Dockerfile
   working_dir: /repo
   volumes:
-    - ./:/repo
+    - ./cyberbot:/repo/cyberbot:ro
+    - ./user_data:/repo/user_data
+    - ./reports:/repo/reports
     - cyberbot_data:/data
   logging:
     driver: json-file
@@ -60,9 +63,18 @@ services:
     environment:
       <<: *telegram-env
 
-  # Tek seferlik isler (baglanti testi, raporlar). .bat dosyalari bunu cagirir:
-  #   docker compose run --rm --build tools cyberbot.connection_test
+  # Tek seferlik isler (WEEX probu, demo durumu, rapor). .bat dosyalari bunu cagirir:
+  #   docker compose run --rm --build tools cyberbot.demo_report
   tools:
+    <<: *cyberbot
+    profiles: ["tools"]
+    entrypoint: ["python", "-m"]
+    environment:
+      <<: *telegram-env
+
+  # Sadece baglanti testi: .env'de WEEX anahtari varsa salt-okunur bakiye kontrolu yapar.
+  # WEEX anahtarlarini alan tek servis budur.
+  conntest:
     <<: *cyberbot
     profiles: ["tools"]
     entrypoint: ["python", "-m"]

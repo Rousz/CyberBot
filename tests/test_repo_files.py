@@ -76,3 +76,8 @@ def test_compose_reads_secrets_from_env_and_keeps_keys_out_of_freqtrade():
     assert "WEEX_API" not in freqtrade_block and "--dry-run" in freqtrade_block
     assert "stop_grace_period: 60s" in freqtrade_block
     assert "cyberbot_data:/data" in text
+    # .env must never be visible inside a container: no whole-repo bind mount
+    assert "./:/repo" not in text and "./cyberbot:/repo/cyberbot:ro" in text
+    tools_block = text.split("\n  tools:", 1)[1].split("\n  conntest:", 1)[0]
+    assert "WEEX_API" not in tools_block
+    assert "WEEX_API_KEY: ${WEEX_API_KEY:-}" in text.split("\n  conntest:", 1)[1]

@@ -169,12 +169,29 @@ class UptimeStore:
 
 class Heartbeat:
     """Arka planda dakikada bir kalp atışı yazan iş parçacığı.
-    Freqtrade'in ana döngüsü takılsa bile çalışmaya devam eder."""
 
-    def __init__(self, store: UptimeStore, session_id: int, interval_s: float = HEARTBEAT_INTERVAL_S):
+    is_alive verilirse kalp atışı sadece o True dönerken yazılır (ör. Freqtrade'in ana
+    döngüsü son dakikalarda ilerlediyse). Böylece süreç ayakta ama bot durmuş/takılmışsa
+    kalp atışı kesilir, izleme uyarır ve rapor bunu kesinti sayar. Takılma bitince eski
+    oturum "stalled" olarak kapanır ve yeni oturum açılır; aradaki boşluk raporda görünür.
+    Güncel oturum kimliği her zaman self.session_id'dedir."""
+
+    def __init__(
+        self,
+        store: UptimeStore,
+        session_id: int,
+        interval_s: float = HEARTBEAT_INTERVAL_S,
+        *,
+        is_alive=None,
+        version: str = "",
+    ):
         self.store = store
         self.session_id = session_id
         self.interval_s = interval_s
+        self.is_alive = is_alive
+        self.version = version
+        self.stalled = False
+        self._last_ok_ms = now_ms()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, name=f"heartbeat-{store.component}", daemon=True)
 
@@ -187,10 +204,34 @@ class Heartbeat:
         if self._thread.is_alive():
             self._thread.join(timeout=5)
 
+    def beat(self) -> None:
+        """Tek kalp atışı turu (iş parçacığı dakikada bir çağırır; testler doğrudan çağırabilir)."""
+        alive = True
+        if self.is_alive is not None:
+            try:
+                alive = bool(self.is_alive())
+            except Exception as exc:
+                logger.warning("uptime is_alive kontrolü hata verdi: %s", exc)
+                alive = False
+        if not alive:
+            if not self.stalled:
+                logger.warning("uptime: ana döngü ilerlemiyor, kalp atışı durduruldu")
+            self.stalled = True
+            return
+        if self.stalled:
+            # takılma bitti: eski oturumu son sağlıklı kalp atışından sonra kapat, yenisini aç
+            self.store.stop_session(self.session_id, kind="stalled",
+                                    at_ms=self._last_ok_ms + int(self.interval_s * 1000))
+            self.session_id = self.store.start_session(version=self.version, detail="takılma sonrası devam")
+            self.stalled = False
+            logger.warning("uptime: ana döngü yeniden ilerliyor, yeni oturum %s", self.session_id)
+        self.store.heartbeat(self.session_id)
+        self._last_ok_ms = now_ms()
+
     def _run(self) -> None:
         while not self._stop.wait(self.interval_s):
             try:
-                self.store.heartbeat(self.session_id)
+                self.beat()
             except Exception as exc:  # disk dolu, kilit vb.: bir sonraki turda tekrar dene
                 logger.warning("uptime heartbeat yazılamadı: %s", exc)
 

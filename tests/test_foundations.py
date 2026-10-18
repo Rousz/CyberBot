@@ -94,6 +94,37 @@ def test_heartbeat_thread_updates_store(tmp_path):
     assert store.last_heartbeat_ms() > 1
 
 
+def test_heartbeat_pauses_while_not_alive_and_opens_new_session_after_stall(tmp_path):
+    store = uptime.UptimeStore(tmp_path / "u.sqlite", "freqtrade")
+    sid = store.start_session(at_ms=1)
+    state = {"alive": True}
+    hb = uptime.Heartbeat(store, sid, is_alive=lambda: state["alive"], version="v1")
+    hb.beat()
+    first_beat = store.last_heartbeat_ms()
+    state["alive"] = False
+    hb.beat()
+    hb.beat()
+    assert hb.stalled and store.last_heartbeat_ms() == first_beat and hb.session_id == sid
+    state["alive"] = True
+    hb.beat()
+    old, new = store.sessions()
+    assert old.id == sid and old.stop_kind == "stalled" and old.stopped_ms == first_beat + 60_000
+    assert new.id == hb.session_id != sid and new.version == "v1" and new.stopped_ms is None
+    assert not hb.stalled
+
+
+def test_heartbeat_treats_failing_alive_check_as_not_alive(tmp_path):
+    store = uptime.UptimeStore(tmp_path / "u.sqlite", "freqtrade")
+    sid = store.start_session(at_ms=1)
+
+    def broken():
+        raise RuntimeError("x")
+
+    hb = uptime.Heartbeat(store, sid, is_alive=broken)
+    hb.beat()
+    assert hb.stalled and store.last_heartbeat_ms() == 1
+
+
 # --- notify -----------------------------------------------------------------
 
 

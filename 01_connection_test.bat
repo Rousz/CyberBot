@@ -17,7 +17,7 @@ echo.
 echo Ilk calistirmada CyberBot imaji hazirlanir: Freqtrade 2026.9 indirilir, yaklasik 300 MB, birkac dakika surebilir.
 echo Test 1-2 dakika surer. Pencereyi kapatma.
 echo.
-docker compose run --rm --build tools cyberbot.connection_test
+docker compose run --rm --build conntest cyberbot.connection_test
 set "RC=%ERRORLEVEL%"
 if not exist "%MARK%" goto :docker_failed
 echo.
