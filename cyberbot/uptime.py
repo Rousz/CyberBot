@@ -225,8 +225,9 @@ class Heartbeat:
             self.session_id = self.store.start_session(version=self.version, detail="takılma sonrası devam")
             self.stalled = False
             logger.warning("uptime: ana döngü yeniden ilerliyor, yeni oturum %s", self.session_id)
-        self.store.heartbeat(self.session_id)
-        self._last_ok_ms = now_ms()
+        ts = now_ms()
+        self.store.heartbeat(self.session_id, at_ms=ts)
+        self._last_ok_ms = ts
 
     def _run(self) -> None:
         while not self._stop.wait(self.interval_s):
