@@ -1,0 +1,188 @@
+{
+  "bot_name": "CyberBot",
+  "initial_state": "running",
+  "dry_run": true,
+  "dry_run_wallet": 1000,
+  "trading_mode": "futures",
+  "margin_mode": "isolated",
+  "liquidation_buffer": 0.05,
+  "stake_currency": "USDT",
+  "stake_amount": "unlimited",
+  "tradable_balance_ratio": 0.99,
+  "max_open_trades": 3,
+  "timeframe": "5m",
+  "ignore_buying_expired_candle_after": 90,
+  "unfilledtimeout": {
+    "entry": 4,
+    "exit": 2,
+    "exit_timeout_count": 0,
+    "unit": "minutes"
+  },
+  "entry_pricing": {
+    "price_side": "other",
+    "use_order_book": true,
+    "order_book_top": 1,
+    "price_last_balance": 0.0,
+    "check_depth_of_market": {
+      "enabled": false,
+      "bids_to_ask_delta": 1
+    }
+  },
+  "exit_pricing": {
+    "price_side": "other",
+    "use_order_book": true,
+    "order_book_top": 1
+  },
+  "order_types": {
+    "entry": "market",
+    "exit": "market",
+    "emergency_exit": "market",
+    "force_entry": "market",
+    "force_exit": "market",
+    "stoploss": "market",
+    "stoploss_on_exchange": false
+  },
+  "order_time_in_force": {
+    "entry": "GTC",
+    "exit": "GTC"
+  },
+  "exchange": {
+    "name": "weex",
+    "key": "",
+    "secret": "",
+    "password": "",
+    "weex_maintenance_margin_rate": 0.01,
+    "ccxt_config": {},
+    "ccxt_async_config": {},
+    "markets_refresh_interval": 60,
+    "pair_whitelist": [],
+    "pair_blacklist": [
+      "(USDC|USDT|FDUSD|TUSD|USDP|DAI|BUSD|USDE|PYUSD|USD1|RLUSD|USDS|USDD|FRAX|LUSD|GUSD|SUSD|USTC|BFUSD|EUR|EURI|AEUR)/.*",
+      "[A-Z0-9]+(BULL|BEAR)/.*",
+      "[A-Z0-9]+[2-5][LS]/.*"
+    ]
+  },
+  "pairlists": [
+    {
+      "method": "VolumePairList",
+      "number_assets": 40,
+      "sort_key": "quoteVolume",
+      "min_value": 10000000,
+      "refresh_period": 3600
+    },
+    {
+      "method": "AgeFilter",
+      "min_days_listed": 30
+    },
+    {
+      "method": "SpreadFilter",
+      "max_spread_ratio": 0.0015
+    },
+    {
+      "method": "PriceFilter",
+      "low_price_ratio": 0.002
+    }
+  ],
+  "telegram": {
+    "enabled": false,
+    "token": "",
+    "chat_id": "",
+    "notification_settings": {
+      "status": "silent",
+      "warning": "on",
+      "startup": "off",
+      "entry": "on",
+      "entry_fill": "off",
+      "entry_cancel": "silent",
+      "exit": "off",
+      "exit_fill": "on",
+      "exit_cancel": "on",
+      "protection_trigger": "off",
+      "protection_trigger_global": "on",
+      "strategy_msg": "on",
+      "show_candle": "off",
+      "liquidation_warning": "on"
+    },
+    "reload": true,
+    "balance_dust_level": 0.01
+  },
+  "api_server": {
+    "enabled": false,
+    "listen_ip_address": "127.0.0.1",
+    "listen_port": 8080,
+    "username": "",
+    "password": ""
+  },
+  "internals": {
+    "process_throttle_secs": 5,
+    "heartbeat_interval": 60
+  },
+  "dataformat_ohlcv": "feather",
+  "dataformat_trades": "feather",
+  "cyberbot": {
+    "strategy": {
+      "layers": {
+        "trend": true,
+        "indicators": false,
+        "patterns": false,
+        "derivatives": false,
+        "news": false
+      },
+      "weights": {
+        "trend": 1.0,
+        "indicators": 1.0,
+        "patterns": 1.0,
+        "derivatives": 1.0,
+        "news": 1.0
+      },
+      "entry_score_threshold": 70,
+      "min_rr": 1.5,
+      "target_rr": 1.8,
+      "leverage": 3,
+      "risk_per_trade": 0.01,
+      "cap_stake_to_slot": true,
+      "max_hold_minutes": 180,
+      "trend": {
+        "ema_fast": 20,
+        "ema_mid": 50,
+        "ema_slow": 200,
+        "adx_period": 14,
+        "adx_trend": 20,
+        "adx_strong": 40,
+        "inf_ema_mid": 50,
+        "inf_ema_slow": 200
+      },
+      "trigger": {
+        "pullback_lookback": 3,
+        "vol_sma": 20,
+        "vol_mult": 1.0
+      },
+      "stop": {
+        "swing_lookback": 6,
+        "atr_period": 14,
+        "atr_buffer": 0.25,
+        "min_stop_pct": 0.004,
+        "max_stop_pct": 0.03
+      },
+      "ranking": {
+        "binance_priority_bonus": 5.0,
+        "binance_max_age_hours": 48,
+        "binance_refresh_s": 3600
+      },
+      "depth": {
+        "enabled": true,
+        "levels": 20,
+        "band_pct": 0.005,
+        "min_depth_usdt": 50000
+      },
+      "health": {
+        "enabled": true,
+        "max_candle_delay_s": 45,
+        "lock_minutes": 10,
+        "recovery_loops": 3
+      }
+    },
+    "recorder": {},
+    "monitor": {}
+  }
+}
